@@ -5,10 +5,13 @@
 //  Created by An So on 2025-04-13.
 //
 
+import Foundation
 import SwiftUI
 
-struct AboutView: View {
-  var body: some View {
+public struct AboutView: View {
+  @State private var showCheckUpdate = true
+
+  public var body: some View {
     VStack(spacing: 20) {
       Image("AppIcon")
         .resizable()
@@ -24,9 +27,23 @@ struct AboutView: View {
         .frame(width: 250)
         .lineLimit(nil)
 
-      Text("Version 0.0.1")
-        .font(.subheadline)
-        .foregroundColor(.secondary)
+      Text(
+        "Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.1") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))"
+      )
+      .font(.subheadline)
+      .foregroundColor(.secondary)
+
+      if showCheckUpdate {
+        Button(action: {
+          showCheckUpdate = false
+          Task {
+            await UpdateChecker.shared.checkForUpdates()
+          }
+        }) {
+          Label("Check for Updates", systemImage: "arrow.up.circle")
+        }
+        .buttonStyle(.bordered)
+      }
 
       Text("Early access.")
         .multilineTextAlignment(.center)
@@ -44,6 +61,8 @@ struct AboutView: View {
     }
     .padding()
   }
+
+  public init() {}
 }
 
 #Preview {
