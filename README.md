@@ -1,10 +1,16 @@
 # Gridded
 
-Gridded is a macOS application that provides a customizable grid overlay for your screen, helping you organize and align content with precision. The app runs in the menu bar and allows you to quickly toggle the grid overlay on and off.
+Gridded is a modern window management program for macOS.
+
+Gridded enables the user to quickly and easily layout their windows on a dynamic grid using just the mouse.
+
+It gives functionality to the normally useless right mouse button when moving a window. Doing this will enable the grid snapping mode, allowing you to drag the window into, or across multiple cells to fit the window in the cells.
+
+> When trackpad is used, using right mouse may be inconvenient, so pressing down the space key will also enable the grid snapping mode.
 
 *This app is in early development stage and may be unstable.*
 
-![Alt Text](demo.gif)
+<img src="demo.gif" width="100%" />
 
 ## Features
 
