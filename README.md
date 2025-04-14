@@ -4,6 +4,8 @@ Gridded is a macOS application that provides a customizable grid overlay for you
 
 *This app is in early development stage and may be unstable.*
 
+![Alt Text](demo.gif)
+
 ## Features
 
 - Customizable grid dimensions (rows and columns)
