@@ -48,7 +48,7 @@ final class StatusBarController {
         if preferencesWindow == nil {
             let view = PreferencesView()
             preferencesWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 350, height: 250),
+                contentRect: NSRect(x: 0, y: 0, width: 350, height: 450),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false)
@@ -67,7 +67,7 @@ final class StatusBarController {
         if aboutWindow == nil {
             let view = AboutView()
             aboutWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 250, height: 350),
+                contentRect: NSRect(x: 0, y: 0, width: 350, height: 450),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false)

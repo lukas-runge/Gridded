@@ -9,9 +9,33 @@ import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var config = Configuration.shared
+    
+    @State private var showAlert: Bool = true
 
     var body: some View {
         VStack {
+            VStack {
+                Text("Accessibility permission granted?")
+                if (config.accessibilityPermission) {
+                    Text("✅ Granted")
+                } else {
+                    VStack {
+                        HStack {
+                            Text("❌")
+                            Button("Grant permission") {
+                                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        Text("If the app is already in the list and granted permission but it still doesn't work, try removing the app from the list and restart the app.")
+                            .frame(width: 250)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(nil)
+                    }
+                }
+            }
+            .padding(10)
+            Divider()
             VStack {
                 Text("Activate grid snapping by...")
                 Text("Pressing space key when dragging a window.")

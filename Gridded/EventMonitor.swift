@@ -37,6 +37,13 @@ class EventMonitor {
      */
     func start() {
         guard eventTap == nil else { return }
+        
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString: false]
+        Configuration.shared.accessibilityPermission = AXIsProcessTrustedWithOptions(options)
+        
+        if (!Configuration.shared.accessibilityPermission) {
+            showAccessibilityAlert()
+        }
 
         let eventMask =
             (1 << CGEventType.leftMouseDown.rawValue)
@@ -52,7 +59,8 @@ class EventMonitor {
             options: .defaultTap,
             eventsOfInterest: CGEventMask(eventMask),
             callback: { _, type, event, refcon in
-                return Unmanaged.passRetained(EventMonitor.shared.handle(event: event, type: type))
+                let handledEvent = EventMonitor.shared.handle(event: event, type: type)
+                return Unmanaged.passUnretained(handledEvent)
             },
             userInfo: nil
         )
@@ -63,7 +71,7 @@ class EventMonitor {
             CGEvent.tapEnable(tap: eventTap, enable: true)
         }
 
-        logger.debug("started")
+        logger.info("event monitor started")
     }
 
     /**
@@ -78,7 +86,7 @@ class EventMonitor {
         }
         eventTap = nil
         runLoopSource = nil
-        logger.debug("stopped")
+        logger.info("event monitor stopped")
     }
 
     // MARK: Event handlers
@@ -88,10 +96,10 @@ class EventMonitor {
         let activateKey = 49  // space
         switch type {
         case .leftMouseDown:
-            logger.debug("left mouse down")
+            logger.info("left mouse down")
             leftMouseDown()
         case .leftMouseUp:
-            logger.debug("left mouse up")
+            logger.info("left mouse up")
             leftMouseUp()
         case .leftMouseDragged:
             if isSnapping {
@@ -103,8 +111,8 @@ class EventMonitor {
             }
         case .keyDown:
             if event.getIntegerValueField(.keyboardEventKeycode) == activateKey {
-                logger.debug("space down")
-                spaceDown()
+                logger.info("space down")
+                startSapping()
             }
         default:
             break
@@ -147,7 +155,7 @@ class EventMonitor {
         OverlayWindow.shared.hide()
     }
 
-    private func spaceDown() {
+    private func startSapping() {
         guard isDragging else { return }
         isSnapping = true
         frontMostWindow = WindowManager.shared.getFrontmostWindow()
@@ -195,5 +203,25 @@ class EventMonitor {
         }
 
         return topLeft
+    }
+    
+    // MARK: alert when permission not granted
+    func showAccessibilityAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permission"
+        alert.informativeText = """
+        To detect window movement and move window, the app needs accessibility permission.
+
+        Please go to System Settings → Privacy & Security → Accessibility, and enable access for this app.
+        
+        You may need to restart the app after granting permission.
+        """
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Cancel")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+            NSWorkspace.shared.open(url)
+        }
     }
 }

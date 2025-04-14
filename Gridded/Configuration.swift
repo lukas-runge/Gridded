@@ -11,6 +11,7 @@ import Foundation
 final class Configuration: ObservableObject {
     @Published var columns: Int
     @Published var rows: Int
+    @Published var accessibilityPermission: Bool = false
 
     static let shared = Configuration()
 
@@ -31,6 +32,5 @@ final class Configuration: ObservableObject {
         $rows
             .sink { defaults.set($0, forKey: "gridRows") }
             .store(in: &cancellables)
-
     }
 }

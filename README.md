@@ -17,8 +17,8 @@ Gridded is a macOS application that provides a customizable grid overlay for you
 
 ## Requirements
 
-- macOS 11.0 or later
-- Xcode 13.0 or later (for development)
+- macOS 14.0 or later
+- Xcode 16.0 or later (for development)
 
 ## Contributing
 
