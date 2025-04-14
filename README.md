@@ -11,9 +11,13 @@ Gridded is a macOS application that provides a customizable grid overlay for you
 - Persistent configuration using UserDefaults
 - Preview overlay for smooth window management
 
-## Roadmap
+## Work In Progress
 
-- Support multi-display
+- Multi-display support is work in progress
+
+## Known Issue
+
+- Revoking accessibility permission while the app is running may freeze the computer.
 
 ## Requirements
 

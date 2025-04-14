@@ -29,6 +29,10 @@ final class StatusBarController {
         menu.addItem(
             NSMenuItem(
                 title: "Preferences", action: #selector(openPreferences), keyEquivalent: ""))
+        menu.addItem(
+            NSMenuItem(
+                title: "Restart event monitor", action: #selector(restartEventMonitor),
+                keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(
             NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: ""))
@@ -48,7 +52,7 @@ final class StatusBarController {
         if preferencesWindow == nil {
             let view = PreferencesView()
             preferencesWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 350, height: 450),
+                contentRect: NSRect(x: 0, y: 0, width: 450, height: 500),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false)
@@ -57,10 +61,18 @@ final class StatusBarController {
             preferencesWindow?.isReleasedWhenClosed = false
             preferencesWindow?.contentView = NSHostingView(rootView: view)
             preferencesWindow?.title = "Gridded Preferences"
-
         }
-        preferencesWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+
+        if preferencesWindow?.isVisible == true {
+            preferencesWindow?.orderOut(nil)
+        } else {
+            preferencesWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @objc private func restartEventMonitor() {
+        EventMonitor.shared.restart()
     }
 
     @objc private func openAbout() {
@@ -76,8 +88,13 @@ final class StatusBarController {
             aboutWindow?.contentView = NSHostingView(rootView: view)
             aboutWindow?.title = "About"
         }
-        aboutWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+
+        if aboutWindow?.isVisible == true {
+            aboutWindow?.orderOut(nil)
+        } else {
+            aboutWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     @objc private func quit() {

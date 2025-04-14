@@ -43,12 +43,14 @@ class EventMonitor {
         
         if (!Configuration.shared.accessibilityPermission) {
             showAccessibilityAlert()
+            return
         }
 
         let eventMask =
             (1 << CGEventType.leftMouseDown.rawValue)
             | (1 << CGEventType.leftMouseDragged.rawValue)
             | (1 << CGEventType.leftMouseUp.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue)
             | (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
             | (1 << CGEventType.mouseMoved.rawValue)
@@ -88,6 +90,12 @@ class EventMonitor {
         runLoopSource = nil
         logger.info("event monitor stopped")
     }
+    
+    func restart() {
+        stop()
+        reset()
+        start()
+    }
 
     // MARK: Event handlers
 
@@ -96,12 +104,13 @@ class EventMonitor {
         let activateKey = 49  // space
         switch type {
         case .leftMouseDown:
-            logger.info("left mouse down")
+            logger.debug("left mouse down")
             leftMouseDown()
         case .leftMouseUp:
-            logger.info("left mouse up")
+            logger.debug("left mouse up")
             leftMouseUp()
         case .leftMouseDragged:
+            logger.debug("left mouse up")
             if isSnapping {
                 let currentMouse = getMouseCoordinates()
                 OverlayWindow.shared.updateWindowPreview(
@@ -109,10 +118,13 @@ class EventMonitor {
                     end: currentMouse
                 )
             }
+        case .rightMouseDown:
+            logger.debug("right mouse down")
+            startSnapping()
         case .keyDown:
             if event.getIntegerValueField(.keyboardEventKeycode) == activateKey {
-                logger.info("space down")
-                startSapping()
+                logger.debug("space down")
+                startSnapping()
             }
         default:
             break
@@ -155,7 +167,7 @@ class EventMonitor {
         OverlayWindow.shared.hide()
     }
 
-    private func startSapping() {
+    private func startSnapping() {
         guard isDragging else { return }
         isSnapping = true
         frontMostWindow = WindowManager.shared.getFrontmostWindow()
@@ -193,6 +205,11 @@ class EventMonitor {
         var topLeft: CGPoint = CGPoint.zero
 
         var value: AnyObject?
+        guard AXIsProcessTrusted() else {
+            restart()
+            return nil
+        }
+        
         if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &value)
             == .success
         {
@@ -222,6 +239,8 @@ class EventMonitor {
         if alert.runModal() == .alertFirstButtonReturn {
             let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
             NSWorkspace.shared.open(url)
+            
+//            NSApplication.shared.terminate(self)
         }
     }
 }

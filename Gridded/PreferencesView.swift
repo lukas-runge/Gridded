@@ -9,40 +9,58 @@ import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var config = Configuration.shared
-    
+
     @State private var showAlert: Bool = true
 
     var body: some View {
         VStack {
+            Toggle(isOn: $config.autoStart) {
+                Text("Auto start")
+            }
+
+            Divider()
+
             VStack {
-                Text("Accessibility permission granted?")
-                if (config.accessibilityPermission) {
-                    Text("✅ Granted")
+                if config.accessibilityPermission {
+                    Text("✅ Accessibility permission granted")
                 } else {
                     VStack {
-                        HStack {
-                            Text("❌")
-                            Button("Grant permission") {
-                                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-                                NSWorkspace.shared.open(url)
-                            }
+                        Text("❌ Accessibility permission not granted")
+                        Button("Grant permission") {
+                            let url = URL(
+                                string:
+                                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                            )!
+                            NSWorkspace.shared.open(url)
                         }
-                        Text("If the app is already in the list and granted permission but it still doesn't work, try removing the app from the list and restart the app.")
-                            .frame(width: 250)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(nil)
+                        Button("Check permission again") {
+                            EventMonitor.shared.restart()
+                        }
+                        Text(
+                            "If the app is already in the list and granted permission but it still doesn't work, try removing the app from the list and restart the app."
+                        )
+                        .frame(width: 350)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
                     }
                 }
             }
             .padding(10)
+
             Divider()
+
             VStack {
-                Text("Activate grid snapping by...")
-                Text("Pressing space key when dragging a window.")
+                Text("Activate grid snapping by pressing space key when dragging a window.")
+                    .frame(width: 350)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
                 Text("This will be customizable in the future.")
+                    .font(.footnote)
             }
             .padding(10)
+
             Divider()
+
             VStack {
                 Text("Grid layout")
                 HStack {
@@ -69,6 +87,8 @@ struct PreferencesView: View {
                         .border(Color.gray)
 
                 }
+                Text("Tip: you may drag the window across multiple grids.")
+                    .font(.footnote)
             }
             .padding(10)
         }
