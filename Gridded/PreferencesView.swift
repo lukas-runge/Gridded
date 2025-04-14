@@ -12,33 +12,43 @@ struct PreferencesView: View {
 
     var body: some View {
         VStack {
-            Text("Grid layout")
-            HStack {
-                Form {
-                    HStack {
-                        Text("Columns")
-                        Spacer()
-                        Stepper(value: $config.columns, in: 1...24) {
-                            Text("\(config.columns)")
-                        }
-                    }
-                    HStack {
-                        Text("Rows")
-                        Spacer()
-                        Stepper(value: $config.rows, in: 1...24) {
-                            Text("\(config.rows)")
-                        }
-                    }
-                }
-                .frame(width: 200)
-
-                GridPreview(rows: config.rows, columns: config.columns)
-                    .frame(width: 120, height: 75)
-                    .border(Color.gray)
-
+            VStack {
+                Text("Activate grid snapping by...")
+                Text("Pressing space key when dragging a window.")
+                Text("This will be customizable in the future.")
             }
+            .padding(10)
+            Divider()
+            VStack {
+                Text("Grid layout")
+                HStack {
+                    Form {
+                        HStack {
+                            Text("Columns")
+                            Spacer()
+                            Stepper(value: $config.columns, in: 1...24) {
+                                Text("\(config.columns)")
+                            }
+                        }
+                        HStack {
+                            Text("Rows")
+                            Spacer()
+                            Stepper(value: $config.rows, in: 1...24) {
+                                Text("\(config.rows)")
+                            }
+                        }
+                    }
+                    .frame(width: 200)
+
+                    GridPreview(rows: config.rows, columns: config.columns)
+                        .frame(width: 120, height: 75)
+                        .border(Color.gray)
+
+                }
+            }
+            .padding(10)
         }
-        .padding()
+        .padding(10)
         .environmentObject(Configuration.shared)
     }
 }
@@ -65,4 +75,8 @@ struct GridPreview: View {
             }
         }
     }
+}
+
+#Preview {
+    PreferencesView()
 }

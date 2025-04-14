@@ -119,3 +119,7 @@ class OverlayWindow: NSWindow {
     self.orderOut(nil)
   }
 }
+
+#Preview {
+    GridView()
+}

@@ -5,7 +5,6 @@
 //  Created by An So on 2025-04-13.
 //
 
-
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -15,5 +14,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController = StatusBarController()
     }
 }
-
-

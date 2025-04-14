@@ -2,13 +2,18 @@
 
 Gridded is a macOS application that provides a customizable grid overlay for your screen, helping you organize and align content with precision. The app runs in the menu bar and allows you to quickly toggle the grid overlay on and off.
 
+*This app is in early development stage and may be unstable.*
+
 ## Features
 
 - Customizable grid dimensions (rows and columns)
 - Menu bar integration for easy access
 - Persistent configuration using UserDefaults
-- Smooth overlay window management
-- Preferences panel for grid customization
+- Preview overlay for smooth window management
+
+## Roadmap
+
+- Support multi-display
 
 ## Requirements
 

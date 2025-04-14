@@ -18,7 +18,7 @@ final class StatusBarController {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "grid", accessibilityDescription: "GridSnap")
+            button.image = NSImage(systemSymbolName: "grid", accessibilityDescription: "Gridded")
         }
 
         let menu = NSMenu(title: "Gridded")
@@ -48,14 +48,16 @@ final class StatusBarController {
         if preferencesWindow == nil {
             let view = PreferencesView()
             preferencesWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+                contentRect: NSRect(x: 0, y: 0, width: 350, height: 250),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false)
+
             preferencesWindow?.center()
             preferencesWindow?.isReleasedWhenClosed = false
             preferencesWindow?.contentView = NSHostingView(rootView: view)
             preferencesWindow?.title = "Gridded Preferences"
+
         }
         preferencesWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -65,14 +67,14 @@ final class StatusBarController {
         if aboutWindow == nil {
             let view = AboutView()
             aboutWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 300, height: 250),
+                contentRect: NSRect(x: 0, y: 0, width: 250, height: 350),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false)
             aboutWindow?.center()
             aboutWindow?.isReleasedWhenClosed = false
             aboutWindow?.contentView = NSHostingView(rootView: view)
-            aboutWindow?.title = "About Gridded"
+            aboutWindow?.title = "About"
         }
         aboutWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

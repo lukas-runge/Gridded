@@ -85,7 +85,7 @@ class EventMonitor {
 
     private func handle(event: CGEvent, type: CGEventType) -> CGEvent {
         // TODO: make this configurable
-        let activateKey = 49 // space
+        let activateKey = 49  // space
         switch type {
         case .leftMouseDown:
             logger.debug("left mouse down")

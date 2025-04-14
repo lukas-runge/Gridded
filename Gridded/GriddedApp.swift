@@ -17,5 +17,5 @@ struct GriddedApp: App {
     }
 
     var body: some Scene {}
-    
+
 }
