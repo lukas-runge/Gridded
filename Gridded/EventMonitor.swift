@@ -11,236 +11,279 @@ import CoreGraphics
 import Foundation
 import Logging
 
+//enum DockPosition {
+//  case bottom
+//  case left
+//  case right
+//}
+
 class EventMonitor {
-    static let shared = EventMonitor()
+  static let shared = EventMonitor()
 
-    private let logger = Logger(label: "EventMonitor")
+  private let logger = Logger(label: "EventMonitor")
 
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
-    private var isSpacePressed = false
-    private var dragCheckTimer: Timer?
+  private var eventTap: CFMachPort?
+  private var runLoopSource: CFRunLoopSource?
+  private var isSpacePressed = false
+  private var dragCheckTimer: Timer?
+  private var overlayWindow: OverlayWindow?
 
-    var isDragging: Bool = false
-    var isSnapping: Bool = false
-    var frontMostWindow: AXUIElement? = nil
-    var mouseCoordinatesStart: CGPoint? = nil
-    var mouseCoordinatesEnd: CGPoint? = nil
-    var windowCoordinatesStart: CGPoint? = nil
-    var windowCoordinatesEnd: CGPoint? = nil
+  public var isMonitoring: Bool { eventTap != nil }
 
-    private init() {}
+  private var isDragging: Bool = false
+  private var isSnapping: Bool = false
+  private var frontMostWindow: AXUIElement? = nil
+  private var mouseCoordinatesStart: CGPoint? = nil
+  private var mouseCoordinatesEnd: CGPoint? = nil
+  private var windowCoordinatesStart: CGPoint? = nil
+  private var windowCoordinatesEnd: CGPoint? = nil
+  public private(set) var activeScreen: NSScreen? = nil
 
-    // MARK: Lifecycle
-    /**
-     * Start event monitor, should run when app is started.
-     */
-    func start() {
-        guard eventTap == nil else { return }
-        
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString: false]
-        Configuration.shared.accessibilityPermission = AXIsProcessTrustedWithOptions(options)
-        
-        if (!Configuration.shared.accessibilityPermission) {
-            showAccessibilityAlert()
-            return
-        }
+  private init() {}
 
-        let eventMask =
-            (1 << CGEventType.leftMouseDown.rawValue)
-            | (1 << CGEventType.leftMouseDragged.rawValue)
-            | (1 << CGEventType.leftMouseUp.rawValue)
-            | (1 << CGEventType.rightMouseDown.rawValue)
-            | (1 << CGEventType.keyDown.rawValue)
-            | (1 << CGEventType.keyUp.rawValue)
-            | (1 << CGEventType.mouseMoved.rawValue)
+  // MARK: Lifecycle
+  /**
+   * Start event monitor, should run when app is started.
+   */
+  func start() {
+    guard eventTap == nil else { return }
 
-        eventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(eventMask),
-            callback: { _, type, event, refcon in
-                let handledEvent = EventMonitor.shared.handle(event: event, type: type)
-                return Unmanaged.passUnretained(handledEvent)
-            },
-            userInfo: nil
-        )
+    let options: NSDictionary = [
+      kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString: false
+    ]
+    Configuration.shared.accessibilityPermission = AXIsProcessTrustedWithOptions(options)
 
-        if let eventTap = eventTap {
-            runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-            CGEvent.tapEnable(tap: eventTap, enable: true)
-        }
-
-        logger.info("event monitor started")
+    if !Configuration.shared.accessibilityPermission {
+      showAccessibilityAlert()
+      return
     }
 
-    /**
-     * Stop event monitor, should run when app exits.
-     */
-    func stop() {
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
-        }
-        if let tap = eventTap {
-            CFMachPortInvalidate(tap)
-        }
-        eventTap = nil
-        runLoopSource = nil
-        logger.info("event monitor stopped")
-    }
-    
-    func restart() {
-        stop()
-        reset()
-        start()
-    }
+    let eventMask =
+      (1 << CGEventType.leftMouseDown.rawValue)
+      | (1 << CGEventType.leftMouseDragged.rawValue)
+      | (1 << CGEventType.leftMouseUp.rawValue)
+      | (1 << CGEventType.rightMouseDown.rawValue)
+      | (1 << CGEventType.keyDown.rawValue)
+      | (1 << CGEventType.keyUp.rawValue)
+      | (1 << CGEventType.mouseMoved.rawValue)
 
-    // MARK: Event handlers
+    eventTap = CGEvent.tapCreate(
+      tap: .cgSessionEventTap,
+      place: .headInsertEventTap,
+      options: .defaultTap,
+      eventsOfInterest: CGEventMask(eventMask),
+      callback: { _, type, event, refcon in
+        let handledEvent = EventMonitor.shared.handle(event: event, type: type)
+        return Unmanaged.passUnretained(handledEvent)
+      },
+      userInfo: nil
+    )
 
-    private func handle(event: CGEvent, type: CGEventType) -> CGEvent {
-        // TODO: make this configurable
-        let activateKey = 49  // space
-        switch type {
-        case .leftMouseDown:
-            logger.debug("left mouse down")
-            leftMouseDown()
-        case .leftMouseUp:
-            logger.debug("left mouse up")
-            leftMouseUp()
-        case .leftMouseDragged:
-            logger.debug("left mouse up")
-            if isSnapping {
-                let currentMouse = getMouseCoordinates()
-                OverlayWindow.shared.updateWindowPreview(
-                    start: mouseCoordinatesStart!,
-                    end: currentMouse
-                )
-            }
-        case .rightMouseDown:
-            logger.debug("right mouse down")
-            startSnapping()
-        case .keyDown:
-            if event.getIntegerValueField(.keyboardEventKeycode) == activateKey {
-                logger.debug("space down")
-                startSnapping()
-            }
-        default:
-            break
-        }
-
-        return event
+    if let eventTap = eventTap {
+      runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+      CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+      CGEvent.tapEnable(tap: eventTap, enable: true)
     }
 
-    private func leftMouseDown() {
-        reset()
-        isDragging = true
+    logger.info("event monitor started")
+  }
+
+  /**
+   * Stop event monitor, should run when app exits.
+   */
+  func stop() {
+    if let source = runLoopSource {
+      CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+    }
+    if let tap = eventTap {
+      CFMachPortInvalidate(tap)
+    }
+    eventTap = nil
+    runLoopSource = nil
+    logger.info("event monitor stopped")
+  }
+
+  func restart() {
+    stop()
+    reset()
+    start()
+  }
+
+  // MARK: Event handlers
+
+  private func handle(event: CGEvent, type: CGEventType) -> CGEvent {
+    let activateKey = Configuration.shared.activateKey
+    switch type {
+    case .leftMouseDown:
+      logger.debug("left mouse down")
+      leftMouseDown()
+    case .leftMouseUp:
+      logger.debug("left mouse up")
+      leftMouseUp()
+    case .leftMouseDragged:
+      if isSnapping {
+        logger.debug("left mouse dragged")
+        mouseCoordinatesEnd = getMouseCoordinates()
+        updateOverlayPreview()
+      }
+    case .rightMouseDown:
+      logger.debug("right mouse down")
+      startSnapping()
+    case .keyDown:
+      if event.getIntegerValueField(.keyboardEventKeycode) == activateKey {
+        logger.debug("space down")
+        startSnapping()
+      }
+    default:
+      break
     }
 
-    private func leftMouseUp() {
-        if isSnapping {
-            mouseCoordinatesEnd = getMouseCoordinates()
-            if windowCoordinatesEnd != windowCoordinatesStart {
-                // window moved
-                WindowManager.shared.snap(
-                    window: frontMostWindow!,
-                    to: SnapToCoordinates(
-                        start: mouseCoordinatesStart!,
-                        end: mouseCoordinatesEnd!
-                    )
-                )
-            }
+    return event
+  }
 
-        }
-        reset()
+  private func leftMouseDown() {
+    reset()
+    activeScreen = ScreenManager.shared.getActiveScreen()
+    isDragging = true
+  }
+
+  private func leftMouseUp() {
+    guard isSnapping else { return reset() }
+    guard activeScreen != nil else { return reset() }
+    guard windowCoordinatesEnd != windowCoordinatesStart else { return reset() }
+    // window moved
+    let snapToCoords = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
+      screen: activeScreen!
+    )
+    WindowManager.shared.setWindow(
+      window: self.frontMostWindow!,
+      screen: activeScreen!,
+      frame: snapToCoords
+    )
+
+    reset()
+  }
+
+  private func reset() {
+    mouseCoordinatesEnd = nil
+    mouseCoordinatesStart = nil
+    windowCoordinatesEnd = nil
+    windowCoordinatesStart = nil
+    frontMostWindow = nil
+    isDragging = false
+    isSnapping = false
+    activeScreen = nil
+
+    // Hide and dispose of overlay window
+    if overlayWindow != nil {
+      overlayWindow?.orderOut(nil)
+      overlayWindow = nil
     }
+  }
 
-    private func reset() {
-        mouseCoordinatesEnd = nil
-        mouseCoordinatesStart = nil
-        windowCoordinatesEnd = nil
-        windowCoordinatesStart = nil
-        frontMostWindow = nil
-        isDragging = false
-        isSnapping = false
-        OverlayWindow.shared.hide()
-    }
+  private func startSnapping() {
+    guard isDragging else { return }
+    isSnapping = true
+    guard activeScreen != nil else { return }
+    frontMostWindow = WindowManager.shared.getFrontmostWindow()
+    windowCoordinatesStart = getWindowCoordinates()
+    mouseCoordinatesStart = getMouseCoordinates()
+    mouseCoordinatesEnd = mouseCoordinatesStart
 
-    private func startSnapping() {
-        guard isDragging else { return }
-        isSnapping = true
-        frontMostWindow = WindowManager.shared.getFrontmostWindow()
-        windowCoordinatesStart = getWindowCoordinates()
-        mouseCoordinatesStart = getMouseCoordinates()
-        OverlayWindow.shared.show()
-    }
+    // Show initial overlay preview
+    updateOverlayPreview()
+  }
 
-    // MARK: Coordinates polling
-
-    private func startPollingWindow() {
-        dragCheckTimer?.invalidate()
-        dragCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
-            self.windowCoordinatesEnd = self.getWindowCoordinates()
-        }
-        logger.debug("window coordinates polling started")
-    }
-
-    private func stopPollingWindow() {
-        dragCheckTimer?.invalidate()
-        dragCheckTimer = nil
-        logger.debug("window coordinates polling stopped")
-    }
-
-    private func getMouseCoordinates() -> CGPoint {
-        return NSEvent.mouseLocation
-    }
-
-    private func getWindowCoordinates() -> CGPoint? {
-        guard let window = frontMostWindow else {
-            logger.notice("frontmost window not set")
-            return nil
-        }
-
-        var topLeft: CGPoint = CGPoint.zero
-
-        var value: AnyObject?
-        guard AXIsProcessTrusted() else {
-            restart()
-            return nil
-        }
-        
-        if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &value)
-            == .success
-        {
-            let position = value as! AXValue
-            if AXValueGetType(position) == .cgPoint {
-                AXValueGetValue(position, .cgPoint, &topLeft)
-            }
-        }
-
-        return topLeft
+  private func updateOverlayPreview() {
+    guard isSnapping, let activeScreen = activeScreen,
+        let mouseStart = mouseCoordinatesStart,
+        let mouseEnd = mouseCoordinatesEnd else {
+      return
     }
     
-    // MARK: alert when permission not granted
-    func showAccessibilityAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission"
-        alert.informativeText = """
-        To detect window movement and move window, the app needs accessibility permission.
-
-        Please go to System Settings → Privacy & Security → Accessibility, and enable access for this app.
-        
-        You may need to restart the app after granting permission.
-        """
-        alert.addButton(withTitle: "Open Settings")
-        alert.addButton(withTitle: "Cancel")
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-            NSWorkspace.shared.open(url)
-            
-//            NSApplication.shared.terminate(self)
-        }
+    // Calculate the grid coordinates using ScreenManager
+    let snapToCoords = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseStart, end: mouseEnd),
+      screen: activeScreen
+    )
+    
+    // Create or update overlay window
+    if overlayWindow == nil {
+      overlayWindow = OverlayWindow(frame: snapToCoords, screen: activeScreen)
+      overlayWindow?.orderFront(nil)
+    } else {
+      overlayWindow?.update(frame: snapToCoords, screen: activeScreen)
     }
+  }
+
+  // MARK: Coordinates polling
+
+  private func startPollingWindow() {
+    dragCheckTimer?.invalidate()
+    dragCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+      self.windowCoordinatesEnd = self.getWindowCoordinates()
+    }
+    logger.debug("window coordinates polling started")
+  }
+
+  private func stopPollingWindow() {
+    dragCheckTimer?.invalidate()
+    dragCheckTimer = nil
+    logger.debug("window coordinates polling stopped")
+  }
+
+  private func getMouseCoordinates() -> CGPoint {
+    return NSEvent.mouseLocation
+  }
+
+  private func getWindowCoordinates() -> CGPoint? {
+    guard let window = frontMostWindow else {
+      logger.notice("frontmost window not set")
+      return nil
+    }
+
+    var topLeft: CGPoint = CGPoint.zero
+
+    var value: AnyObject?
+    guard AXIsProcessTrusted() else {
+      restart()
+      return nil
+    }
+
+    if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &value)
+      == .success
+    {
+      let position = value as! AXValue
+      if AXValueGetType(position) == .cgPoint {
+        AXValueGetValue(position, .cgPoint, &topLeft)
+      }
+    }
+
+    return topLeft
+  }
+
+  // MARK: alert when permission not granted
+  func showAccessibilityAlert() {
+    let alert = NSAlert()
+    alert.messageText = "Accessibility Permission"
+    alert.informativeText = """
+      To detect window movement and move window, the app needs accessibility permission.
+
+      Please go to System Settings → Privacy & Security → Accessibility, and enable access for this app.
+
+      You may need to restart the app after granting permission.
+      """
+    alert.addButton(withTitle: "Open Settings")
+    alert.addButton(withTitle: "Cancel")
+
+    if alert.runModal() == .alertFirstButtonReturn {
+      let url = URL(
+        string:
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+      NSWorkspace.shared.open(url)
+
+      //      NSApplication.shared.terminate(self)
+    }
+  }
 }

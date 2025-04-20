@@ -9,14 +9,14 @@ import AppKit
 import Foundation
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusBarController: StatusBarController?
+  var statusBarController: StatusBarController?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        statusBarController = StatusBarController()
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    statusBarController = StatusBarController()
 
-        // Check for updates
-        Task {
-            await UpdateChecker.shared.checkForUpdates()
-        }
+    // Check for updates
+    Task {
+      await UpdateChecker.shared.checkForUpdates()
     }
+  }
 }

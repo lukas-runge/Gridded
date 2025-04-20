@@ -10,12 +10,13 @@ import SwiftUI
 @main
 struct GriddedApp: App {
 
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+  @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
-    init() {
-        EventMonitor.shared.start()
-    }
+  init() {
+    EventMonitor.shared.start()
+  }
 
-    var body: some Scene {}
+  var body: some Scene {
+  }
 
 }

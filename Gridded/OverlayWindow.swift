@@ -1,125 +1,150 @@
-import Cocoa
+//
+//  OverlayWindow.swift
+//  Gridded
+//
+//  Created by An So on 2025-04-20.
+//
 
-class GridView: NSView {
-  var rows: CGFloat = 5
-  var columns: CGFloat = 5
-  var visibleFrame: NSRect = .zero
-  var windowStart: CGPoint?
-  var windowEnd: CGPoint?
-
-  override func draw(_ dirtyRect: NSRect) {
-    super.draw(dirtyRect)
-
-    guard let context = NSGraphicsContext.current?.cgContext else { return }
-
-    // Calculate grid cell size based on visible frame
-    let cellWidth = visibleFrame.width / columns
-    let cellHeight = visibleFrame.height / rows
-
-    // Draw highlighted cells if window coordinates are set
-    if let start = windowStart, let end = windowEnd {
-      // Determine which cells are covered
-      let minX = min(start.x, end.x)
-      let maxX = max(start.x, end.x)
-      let minY = min(start.y, end.y)
-      let maxY = max(start.y, end.y)
-
-      // Convert to grid indices
-      let startCol = Int((minX - visibleFrame.minX) / cellWidth)
-      let endCol = Int((maxX - visibleFrame.minX) / cellWidth)
-      let startRow = Int((visibleFrame.maxY - maxY) / cellHeight)
-      let endRow = Int((visibleFrame.maxY - minY) / cellHeight)
-
-      // Draw highlighted cells
-      context.setFillColor(NSColor.white.withAlphaComponent(0.1).cgColor)
-      for row in startRow...endRow {
-        for col in startCol...endCol {
-          let rect = NSRect(
-            x: visibleFrame.minX + CGFloat(col) * cellWidth,
-            y: visibleFrame.maxY - (CGFloat(row + 1) * cellHeight),
-            width: cellWidth,
-            height: cellHeight
-          )
-          context.fill(rect)
-        }
-      }
-    }
-
-    // Set line properties
-    context.setStrokeColor(NSColor.white.withAlphaComponent(0.5).cgColor)
-    context.setLineWidth(1.0)
-
-    // Draw vertical lines
-    for i in 1..<Int(columns) {
-      let x = visibleFrame.minX + CGFloat(i) * cellWidth
-      context.move(to: CGPoint(x: x, y: visibleFrame.minY))
-      context.addLine(to: CGPoint(x: x, y: visibleFrame.maxY))
-    }
-
-    // Draw horizontal lines
-    for i in 1..<Int(rows) {
-      let y = visibleFrame.minY + CGFloat(i) * cellHeight
-      context.move(to: CGPoint(x: visibleFrame.minX, y: y))
-      context.addLine(to: CGPoint(x: visibleFrame.maxX, y: y))
-    }
-
-    context.strokePath()
-  }
-}
+import AppKit
+import Foundation
 
 class OverlayWindow: NSWindow {
-  static let shared = OverlayWindow()
-  private let gridView = GridView()
+  private var overlayView: OverlayView
 
-  private init() {
-    super.init(
-      contentRect: .zero,
-      styleMask: [.borderless],
-      backing: .buffered,
-      defer: false
-    )
+  init(frame: CGRect, screen: NSScreen) {
+  // Create overlay view with the screen's visible frame size
+  overlayView = OverlayView(
+    frame: NSRect(origin: .zero, size: screen.visibleFrame.size),
+    highlightFrame: frame,
+    screen: screen
+  )
 
-    self.backgroundColor = NSColor.black.withAlphaComponent(0.2)
-    self.isOpaque = false
-    self.level = .floating
-    self.ignoresMouseEvents = true
+  super.init(
+    contentRect: screen.visibleFrame,
+    styleMask: .borderless,
+    backing: .buffered,
+    defer: false
+  )
 
-    // Setup grid view
-    gridView.autoresizingMask = [.width, .height]
-    self.contentView = gridView
+  // Configure window properties
+  self.backgroundColor = .clear
+  self.isOpaque = false
+  self.hasShadow = false
+  self.level = .floating
+  self.collectionBehavior = [.canJoinAllSpaces, .stationary]
+  self.ignoresMouseEvents = true
+
+  // Set the overlay view as content view
+  self.contentView = overlayView
   }
 
-  func updateGrid() {
-    gridView.rows = CGFloat(Configuration.shared.rows)
-    gridView.columns = CGFloat(Configuration.shared.columns)
-    if let screen = NSScreen.main {
-      gridView.visibleFrame = screen.visibleFrame
-    }
-    gridView.needsDisplay = true
-  }
-
-  func updateWindowPreview(start: CGPoint, end: CGPoint) {
-    gridView.windowStart = start
-    gridView.windowEnd = end
-    gridView.needsDisplay = true
-  }
-
-  func show() {
-    updateGrid()
-    if let screen = NSScreen.main {
-      self.setFrame(screen.frame, display: true)
-      gridView.visibleFrame = screen.visibleFrame
-      self.orderFront(nil)
-    }
-  }
-
-  func hide() {
-    gridView.windowStart = nil
-    gridView.windowEnd = nil
-    self.orderOut(nil)
+  func update(frame: CGRect, screen: NSScreen) {
+  // Update the window to fit the screen
+  self.setFrame(screen.visibleFrame, display: true)
+  overlayView.frame = NSRect(origin: .zero, size: screen.visibleFrame.size)
+  // Update the highlight frame
+  overlayView.highlightFrame = frame
+  overlayView.screen = screen
+  overlayView.needsDisplay = true
   }
 }
 
-#Preview {
-    GridView()
+
+class OverlayView: NSView {
+  private let fillColor = NSColor.systemBlue.withAlphaComponent(0.2)
+  private let borderColor = NSColor.systemBlue.withAlphaComponent(0.5)
+  private let gridColor = NSColor.systemBlue.withAlphaComponent(0.3)
+  private let screenOverlayColor = NSColor.black.withAlphaComponent(0.1)
+  private let borderWidth: CGFloat = 2.0
+  
+  var highlightFrame: CGRect
+  var screen: NSScreen
+  
+  init(frame: NSRect, highlightFrame: CGRect, screen: NSScreen) {
+  self.highlightFrame = highlightFrame
+  self.screen = screen
+  super.init(frame: frame)
+  }
+  
+  required init?(coder: NSCoder) {
+  fatalError("init(coder:) has not been implemented")
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+  super.draw(dirtyRect)
+  
+  // Draw semi-transparent overlay for the entire screen
+  screenOverlayColor.setFill()
+  NSRect(origin: .zero, size: frame.size).fill()
+  
+  // Draw the grid for the entire screen
+  drawGrid(in: bounds)
+  
+  // Convert highlight frame to view coordinates
+  let highlightRect = convertHighlightFrameToViewCoordinates()
+  
+  // Draw the highlighted rectangle
+  let path = NSBezierPath(
+    roundedRect: highlightRect,
+    xRadius: 4,
+    yRadius: 4
+  )
+
+  fillColor.setFill()
+  path.fill()
+  
+  borderColor.setStroke()
+  path.lineWidth = borderWidth
+  path.stroke()
+  }
+  
+  private func convertHighlightFrameToViewCoordinates() -> NSRect {
+  // Convert from global coordinates to screen-local coordinates
+  let visibleFrame = screen.visibleFrame.origin
+  
+  // Calculate the position relative to the screen's visible frame
+  let relativeX = highlightFrame.origin.x - visibleFrame.origin.x
+  
+  // Y-coordinate conversion:
+  let relativeY = highlightFrame.origin.y - visibleFrame.origin.y
+
+  return NSRect(
+    x: relativeX,
+    y: relativeY,
+    width: highlightFrame.width,
+    height: highlightFrame.height
+  )
+  }
+
+  private func drawGrid(in rect: NSRect) {
+  // Get grid dimensions from Configuration
+  let rows = Configuration.shared.rows
+  let columns = Configuration.shared.columns
+
+  // Calculate cell size for the current screen's visible frame
+  let cellWidth = rect.width / CGFloat(columns)
+  let cellHeight = rect.height / CGFloat(rows)
+
+  // Create a path for the grid
+  let gridPath = NSBezierPath()
+  gridPath.lineWidth = 1.0
+
+  // Draw vertical lines
+  for i in 1..<columns {
+    let x = cellWidth * CGFloat(i)
+    gridPath.move(to: NSPoint(x: x, y: 0))
+    gridPath.line(to: NSPoint(x: x, y: rect.height))
+  }
+
+  // Draw horizontal lines
+  for i in 1..<rows {
+    let y = cellHeight * CGFloat(i)
+    gridPath.move(to: NSPoint(x: 0, y: y))
+    gridPath.line(to: NSPoint(x: rect.width, y: y))
+  }
+
+  // Draw the grid
+  gridColor.setStroke()
+  gridPath.stroke()
+  }
 }
