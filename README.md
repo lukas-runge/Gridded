@@ -1,6 +1,9 @@
 # Gridded
 
-Gridded is a modern window management program for macOS.
+Gridded is a modern window management app for macOS.
+
+### [Download - for macOS 14.0+ (universal)](https://github.com/gentlespoon/Gridded/releases/latest)
+
 
 Gridded enables the user to quickly and easily layout their windows on a dynamic grid using just the mouse.
 
