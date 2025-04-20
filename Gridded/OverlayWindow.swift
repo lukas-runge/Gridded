@@ -12,43 +12,42 @@ class OverlayWindow: NSWindow {
   private var overlayView: OverlayView
 
   init(frame: CGRect, screen: NSScreen) {
-  // Create overlay view with the screen's visible frame size
-  overlayView = OverlayView(
-    frame: NSRect(origin: .zero, size: screen.visibleFrame.size),
-    highlightFrame: frame,
-    screen: screen
-  )
+    // Create overlay view with the screen's visible frame size
+    overlayView = OverlayView(
+      frame: NSRect(origin: .zero, size: screen.visibleFrame.size),
+      highlightFrame: frame,
+      screen: screen
+    )
 
-  super.init(
-    contentRect: screen.visibleFrame,
-    styleMask: .borderless,
-    backing: .buffered,
-    defer: false
-  )
+    super.init(
+      contentRect: screen.visibleFrame,
+      styleMask: .borderless,
+      backing: .buffered,
+      defer: false
+    )
 
-  // Configure window properties
-  self.backgroundColor = .clear
-  self.isOpaque = false
-  self.hasShadow = false
-  self.level = .floating
-  self.collectionBehavior = [.canJoinAllSpaces, .stationary]
-  self.ignoresMouseEvents = true
+    // Configure window properties
+    self.backgroundColor = .clear
+    self.isOpaque = false
+    self.hasShadow = false
+    self.level = .floating
+    self.collectionBehavior = [.canJoinAllSpaces, .stationary]
+    self.ignoresMouseEvents = true
 
-  // Set the overlay view as content view
-  self.contentView = overlayView
+    // Set the overlay view as content view
+    self.contentView = overlayView
   }
 
   func update(frame: CGRect, screen: NSScreen) {
-  // Update the window to fit the screen
-  self.setFrame(screen.visibleFrame, display: true)
-  overlayView.frame = NSRect(origin: .zero, size: screen.visibleFrame.size)
-  // Update the highlight frame
-  overlayView.highlightFrame = frame
-  overlayView.screen = screen
-  overlayView.needsDisplay = true
+    // Update the window to fit the screen
+    self.setFrame(screen.visibleFrame, display: true)
+    overlayView.frame = NSRect(origin: .zero, size: screen.visibleFrame.size)
+    // Update the highlight frame
+    overlayView.highlightFrame = frame
+    overlayView.screen = screen
+    overlayView.needsDisplay = true
   }
 }
-
 
 class OverlayView: NSView {
   private let fillColor = NSColor.systemBlue.withAlphaComponent(0.2)
@@ -56,95 +55,95 @@ class OverlayView: NSView {
   private let gridColor = NSColor.systemBlue.withAlphaComponent(0.3)
   private let screenOverlayColor = NSColor.black.withAlphaComponent(0.1)
   private let borderWidth: CGFloat = 2.0
-  
+
   var highlightFrame: CGRect
   var screen: NSScreen
-  
+
   init(frame: NSRect, highlightFrame: CGRect, screen: NSScreen) {
-  self.highlightFrame = highlightFrame
-  self.screen = screen
-  super.init(frame: frame)
+    self.highlightFrame = highlightFrame
+    self.screen = screen
+    super.init(frame: frame)
   }
-  
+
   required init?(coder: NSCoder) {
-  fatalError("init(coder:) has not been implemented")
+    fatalError("init(coder:) has not been implemented")
   }
 
   override func draw(_ dirtyRect: NSRect) {
-  super.draw(dirtyRect)
-  
-  // Draw semi-transparent overlay for the entire screen
-  screenOverlayColor.setFill()
-  NSRect(origin: .zero, size: frame.size).fill()
-  
-  // Draw the grid for the entire screen
-  drawGrid(in: bounds)
-  
-  // Convert highlight frame to view coordinates
-  let highlightRect = convertHighlightFrameToViewCoordinates()
-  
-  // Draw the highlighted rectangle
-  let path = NSBezierPath(
-    roundedRect: highlightRect,
-    xRadius: 4,
-    yRadius: 4
-  )
+    super.draw(dirtyRect)
 
-  fillColor.setFill()
-  path.fill()
-  
-  borderColor.setStroke()
-  path.lineWidth = borderWidth
-  path.stroke()
+    // Draw semi-transparent overlay for the entire screen
+    screenOverlayColor.setFill()
+    NSRect(origin: .zero, size: frame.size).fill()
+
+    // Draw the grid for the entire screen
+    drawGrid(in: bounds)
+
+    // Convert highlight frame to view coordinates
+    let highlightRect = convertHighlightFrameToViewCoordinates()
+
+    // Draw the highlighted rectangle
+    let path = NSBezierPath(
+      roundedRect: highlightRect,
+      xRadius: 4,
+      yRadius: 4
+    )
+
+    fillColor.setFill()
+    path.fill()
+
+    borderColor.setStroke()
+    path.lineWidth = borderWidth
+    path.stroke()
   }
-  
-  private func convertHighlightFrameToViewCoordinates() -> NSRect {
-  // Convert from global coordinates to screen-local coordinates
-  let visibleFrame = screen.visibleFrame.origin
-  
-  // Calculate the position relative to the screen's visible frame
-  let relativeX = highlightFrame.origin.x - visibleFrame.origin.x
-  
-  // Y-coordinate conversion:
-  let relativeY = highlightFrame.origin.y - visibleFrame.origin.y
 
-  return NSRect(
-    x: relativeX,
-    y: relativeY,
-    width: highlightFrame.width,
-    height: highlightFrame.height
-  )
+  private func convertHighlightFrameToViewCoordinates() -> NSRect {
+    // Convert from global coordinates to screen-local coordinates
+    let visibleFrame = screen.visibleFrame
+
+    // Calculate the position relative to the screen's visible frame
+    let relativeX = highlightFrame.origin.x - visibleFrame.origin.x
+
+    // Y-coordinate conversion:
+    let relativeY = highlightFrame.origin.y - visibleFrame.origin.y
+
+    return NSRect(
+      x: relativeX,
+      y: relativeY,
+      width: highlightFrame.width,
+      height: highlightFrame.height
+    )
   }
 
   private func drawGrid(in rect: NSRect) {
-  // Get grid dimensions from Configuration
-  let rows = Configuration.shared.rows
-  let columns = Configuration.shared.columns
+    // Get grid dimensions from Configuration
+    let rows = Configuration.shared.rows
+    let columns = Configuration.shared.columns
 
-  // Calculate cell size for the current screen's visible frame
-  let cellWidth = rect.width / CGFloat(columns)
-  let cellHeight = rect.height / CGFloat(rows)
+    // Calculate cell size for the current screen's visible frame
+    let cellWidth = rect.width / CGFloat(columns)
+    let cellHeight = rect.height / CGFloat(rows)
 
-  // Create a path for the grid
-  let gridPath = NSBezierPath()
-  gridPath.lineWidth = 1.0
+    // Create a path for the grid
+    let gridPath = NSBezierPath()
+    gridPath.lineWidth = 1.0
 
-  // Draw vertical lines
-  for i in 1..<columns {
-    let x = cellWidth * CGFloat(i)
-    gridPath.move(to: NSPoint(x: x, y: 0))
-    gridPath.line(to: NSPoint(x: x, y: rect.height))
-  }
+    // Draw vertical lines
+    for i in 1..<columns {
+      let x = cellWidth * CGFloat(i)
+      gridPath.move(to: NSPoint(x: x, y: 0))
+      gridPath.line(to: NSPoint(x: x, y: rect.height))
+    }
 
-  // Draw horizontal lines
-  for i in 1..<rows {
-    let y = cellHeight * CGFloat(i)
-    gridPath.move(to: NSPoint(x: 0, y: y))
-    gridPath.line(to: NSPoint(x: rect.width, y: y))
-  }
+    // Draw horizontal lines
+    for i in 1..<rows {
+      let y = cellHeight * CGFloat(i)
+      gridPath.move(to: NSPoint(x: 0, y: y))
+      gridPath.line(to: NSPoint(x: rect.width, y: y))
+    }
 
-  // Draw the grid
-  gridColor.setStroke()
-  gridPath.stroke()
+    // Draw the grid
+    gridColor.setStroke()
+    gridPath.stroke()
   }
 }

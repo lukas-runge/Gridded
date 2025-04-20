@@ -50,12 +50,26 @@ struct PreferencesView: View {
       Divider()
 
       VStack {
-        Text("Activate grid snapping by pressing space key when dragging a window.")
+        Text("Activate grid snapping by right click (or space key) when dragging a window.")
           .frame(width: 350)
           .multilineTextAlignment(.center)
           .lineLimit(nil)
         Text("This will be customizable in the future.")
           .font(.footnote)
+      }
+      .padding(10)
+
+      Divider()
+
+      VStack {
+        Toggle(isOn: $config.constrainMouse) {
+          Text("Constrain mouse to active screen during snapping")
+        }
+        Text("Prevents the cursor from leaving the screen while dragging windows in snapping mode")
+          .font(.footnote)
+          .frame(width: 350)
+          .multilineTextAlignment(.center)
+          .lineLimit(nil)
       }
       .padding(10)
 

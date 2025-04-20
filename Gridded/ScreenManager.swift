@@ -51,10 +51,10 @@ class ScreenManager {
     // Why the inconsistence, Apple?
 
     logger.info("")
-    
+
     let visibleFrame = screen.visibleFrame
     let screenFrame = screen.frame
-    
+
     logger.info("Converting new snap coordinates")
 
     // Calculate grid cell dimensions
@@ -103,7 +103,7 @@ class ScreenManager {
 
     logger.info(
       "Grid index\t\t(\(gridTop), \(gridRight), \(gridBottom), \(gridLeft))")
-    
+
     // Get window width and cellHeight
     let windowWidth = (gridRight - gridLeft + 1) * cellWidth
     let windowHeight = (gridTop - gridBottom + 1) * cellHeight

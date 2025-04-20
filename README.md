@@ -8,24 +8,22 @@ It gives functionality to the normally useless right mouse button when moving a 
 
 > When trackpad is used, using right mouse may be inconvenient, so pressing down the space key will also enable the grid snapping mode.
 
-*This app is in early development stage and may be unstable.*
+_This app is in early development stage and may be unstable._
 
 <img src="demo.gif" width="100%" />
 
 ## Features
 
 - Customizable grid dimensions (rows and columns)
-- Menu bar integration for easy access
-- Persistent configuration using UserDefaults
-- Preview overlay for smooth window management
+- Multi-screen support
+- Preview overlay
 
 ## Work In Progress
-
-- Multi-display support is work in progress
 
 ## Known Issue
 
 - Revoking accessibility permission while the app is running may freeze the computer.
+- If window is moved (without resize) the operation may not be honored by Accessibility.
 
 ## Requirements
 

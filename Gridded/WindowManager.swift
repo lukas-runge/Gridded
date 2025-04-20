@@ -50,24 +50,28 @@ struct SnapToCoordinates: Hashable {
   public func setWindow(window: AXUIElement, screen: NSScreen, frame _frame: CGRect) {
     /*
       The frame we get here is {
-        x:    left
-        y:    bottom
-        width:  width
-        height: height
+      x:  left
+      y:  bottom
+      width:  width
+      height: height
       }, we will need to convert to top left origin used by AX
     */
-    
-    logger.info("Got frame\t(x: \(_frame.origin.x), y: \(_frame.origin.y), width: \(_frame.width), height: \(_frame.height))")
-    
+
+    logger.info(
+      "Got frame\t\t(x: \(_frame.origin.x), y: \(_frame.origin.y), width: \(_frame.width), height: \(_frame.height))"
+    )
+
     let frame = CGRect(
       x: _frame.origin.x,
       y: screen.frame.maxY - _frame.origin.y - _frame.height,
       width: _frame.width,
       height: _frame.height
     )
-    
-    logger.info("Set frame\t(x: \(frame.origin.x), y: \(frame.origin.y), width: \(frame.width), height: \(frame.height))")
-    
+
+    logger.info(
+      "Set frame\t\t(x: \(frame.origin.x), y: \(frame.origin.y), width: \(frame.width), height: \(frame.height))"
+    )
+
     var position = CGPoint(x: frame.origin.x, y: frame.origin.y)
     var size = CGSize(width: frame.size.width, height: frame.size.height)
 

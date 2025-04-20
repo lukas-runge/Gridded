@@ -123,8 +123,7 @@ class EventMonitor {
     case .leftMouseDragged:
       if isSnapping {
         logger.debug("left mouse dragged")
-        mouseCoordinatesEnd = getMouseCoordinates()
-        updateOverlayPreview()
+        leftMouseDragged()
       }
     case .rightMouseDown:
       logger.debug("right mouse down")
@@ -150,7 +149,9 @@ class EventMonitor {
   private func leftMouseUp() {
     guard isSnapping else { return reset() }
     guard activeScreen != nil else { return reset() }
+    guard mouseCoordinatesEnd != mouseCoordinatesStart else { return reset() }
     guard windowCoordinatesEnd != windowCoordinatesStart else { return reset() }
+
     // window moved
     let snapToCoords = ScreenManager.shared.convertCoordinates(
       coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
@@ -161,8 +162,18 @@ class EventMonitor {
       screen: activeScreen!,
       frame: snapToCoords
     )
-
     reset()
+  }
+
+  private func leftMouseDragged() {
+    let currentMouse = getMouseCoordinates()
+
+    // Only constrain the mouse if the user has enabled this setting
+    if Configuration.shared.constrainMouse {
+      constrainMouseToActiveScreen(currentMouse)
+    }
+    mouseCoordinatesEnd = currentMouse
+    updateOverlayPreview()
   }
 
   private func reset() {
@@ -195,19 +206,60 @@ class EventMonitor {
     updateOverlayPreview()
   }
 
+  private func constrainMouseToActiveScreen(_ mousePosition: CGPoint) {
+    guard let activeScreen = activeScreen else { return }
+
+    // Get the screen frame in global coordinates
+    let visibleFrame = activeScreen.visibleFrame
+
+    let margin: CGFloat = 5
+
+    let minX = visibleFrame.minX + margin
+    let maxX = visibleFrame.maxX - margin
+    let minY = visibleFrame.minY + margin
+    let maxY = visibleFrame.maxY - margin
+
+    // Constrain the mouse position to the screen bounds
+    var newMousePosition = mousePosition
+
+    var moved: Bool = false
+    if mousePosition.x > maxX {
+      newMousePosition.x = maxX
+      moved = true
+    }
+    if mousePosition.x < minX {
+      newMousePosition.x = minX
+      moved = true
+    }
+    if mousePosition.y > maxY {
+      newMousePosition.y = maxY
+      moved = true
+    }
+    if mousePosition.y < minY {
+      newMousePosition.y = minY
+      moved = true
+    }
+
+    if moved {
+      newMousePosition.y = activeScreen.frame.maxY - newMousePosition.y
+      CGWarpMouseCursorPosition(newMousePosition)
+    }
+  }
+
   private func updateOverlayPreview() {
     guard isSnapping, let activeScreen = activeScreen,
-        let mouseStart = mouseCoordinatesStart,
-        let mouseEnd = mouseCoordinatesEnd else {
+      let mouseStart = mouseCoordinatesStart,
+      let mouseEnd = mouseCoordinatesEnd
+    else {
       return
     }
-    
+
     // Calculate the grid coordinates using ScreenManager
     let snapToCoords = ScreenManager.shared.convertCoordinates(
       coords: (start: mouseStart, end: mouseEnd),
       screen: activeScreen
     )
-    
+
     // Create or update overlay window
     if overlayWindow == nil {
       overlayWindow = OverlayWindow(frame: snapToCoords, screen: activeScreen)
