@@ -17,6 +17,13 @@ struct GriddedApp: App {
   }
 
   var body: some Scene {
+    WindowGroup {
+      EmptyView()
+    }
+    .commands {
+      // Hide the window menu item
+      CommandGroup(replacing: .newItem) {}
+    }
   }
 
 }
