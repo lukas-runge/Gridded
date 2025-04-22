@@ -14,12 +14,36 @@ struct PreferencesView: View {
 
   var body: some View {
     VStack {
-      Toggle(isOn: $config.autoStart) {
-        Text("Auto start")
-      }
-
+      GeneralSection()
       Divider()
+      PermissionsSection()
+      Divider()
+      PreferenceSection()
+      Divider()
+      GridLayoutSection()
+    }
+    .padding(10)
+    .environmentObject(Configuration.shared)
+  }
 
+  // MARK: - Section Components
+
+  private struct GeneralSection: View {
+    @EnvironmentObject private var config: Configuration
+
+    var body: some View {
+      VStack {
+        Toggle(isOn: $config.autoStart) {
+          Text("Auto start")
+        }
+      }
+    }
+  }
+
+  private struct PermissionsSection: View {
+    @EnvironmentObject private var config: Configuration
+
+    var body: some View {
       VStack {
         if config.accessibilityPermission {
           Text("✅ Accessibility permission granted")
@@ -45,36 +69,58 @@ struct PreferencesView: View {
           }
         }
       }
-      .padding(10)
+    }
+  }
 
-      Divider()
-
+  private struct PreferenceSection: View {
+    @EnvironmentObject private var config: Configuration
+    var body: some View {
       VStack {
-        Text("Activate grid snapping by right click (or space key) when dragging a window.")
-          .frame(width: 350)
-          .multilineTextAlignment(.center)
-          .lineLimit(nil)
-        Text("This will be customizable in the future.")
-          .font(.footnote)
-      }
-      .padding(10)
-
-      Divider()
-
-      VStack {
-        Toggle(isOn: $config.constrainMouse) {
-          Text("Constrain mouse to active screen during snapping")
+        VStack {
+          Text("Activate grid snapping when dragging a window by")
+            .frame(width: 350)
+            .multilineTextAlignment(.center)
+            .lineLimit(nil)
+          HStack {
+            Button("Secondary Mouse Click") {}.disabled(true)
+            Text("or")
+            Button("Space") {}.disabled(true)
+          }
+          Text("This will be customizable in the future.")
+            .font(.footnote)
         }
-        Text("Prevents the cursor from leaving the screen while dragging windows in snapping mode")
+        VStack {
+          Toggle(isOn: $config.constrainMouse) {
+            Text("Constrain mouse to active screen during snapping")
+          }
+          Text("Prevents the cursor from leaving the screen while moving windows.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(width: 350)
+            .multilineTextAlignment(.center)
+            .lineLimit(nil)
+        }
+        VStack {
+          Toggle(isOn: $config.moveOnActivate) {
+            Text("Move and resize window while snapping")
+          }
+          Text(
+            "The window will be moved and resized immediately without waiting for mouse release."
+          )
           .font(.footnote)
+          .foregroundStyle(.secondary)
           .frame(width: 350)
           .multilineTextAlignment(.center)
           .lineLimit(nil)
+        }
       }
-      .padding(10)
+    }
+  }
 
-      Divider()
+  private struct GridLayoutSection: View {
+    @EnvironmentObject private var config: Configuration
 
+    var body: some View {
       VStack {
         Text("Grid layout")
         HStack {
@@ -99,15 +145,12 @@ struct PreferencesView: View {
           GridPreview(rows: config.rows, columns: config.columns)
             .frame(width: 120, height: 75)
             .border(Color.gray)
-
         }
         Text("Tip: you may drag the window across multiple grids.")
           .font(.footnote)
       }
       .padding(10)
     }
-    .padding(10)
-    .environmentObject(Configuration.shared)
   }
 }
 

@@ -18,6 +18,7 @@ final class Configuration: ObservableObject {
   @Published var autoStart: Bool
   @Published var activateKey: Int
   @Published var constrainMouse: Bool
+  @Published var moveOnActivate: Bool
   @Published var accessibilityPermission: Bool = false
 
   static let shared = Configuration()
@@ -31,6 +32,7 @@ final class Configuration: ObservableObject {
     autoStart = defaults.getValue(forKey: "autoStart") ?? false
     activateKey = defaults.getValue(forKey: "activateKey") ?? 49
     constrainMouse = defaults.getValue(forKey: "constrainMouse") ?? true
+    moveOnActivate = defaults.getValue(forKey: "moveOnActivate") ?? true
 
     $columns
       .sink { defaults.set($0, forKey: "gridColumns") }
@@ -43,7 +45,7 @@ final class Configuration: ObservableObject {
     $autoStart
       .sink {
         defaults.set($0, forKey: "autoStart")
-        self.autoStart($0)
+        self.setAutoStart($0)
       }
       .store(in: &cancellables)
 
@@ -59,9 +61,17 @@ final class Configuration: ObservableObject {
     $constrainMouse
       .sink { defaults.set($0, forKey: "constrainMouse") }
       .store(in: &cancellables)
+
+    $moveOnActivate
+      .sink { defaults.set($0, forKey: "moveOnActivate") }
+      .store(in: &cancellables)
+
+    if defaults.object(forKey: "autoStart") == nil {
+      autoStart = true
+    }
   }
 
-  private func autoStart(_ start: Bool) {
+  private func setAutoStart(_ start: Bool) {
     do {
       if start {
         try SMAppService.mainApp.register()

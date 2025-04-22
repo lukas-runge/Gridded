@@ -22,14 +22,12 @@ class EventMonitor {
 
   private let logger = Logger(label: "EventMonitor")
 
+  public var isMonitoring: Bool { eventTap != nil }
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
   private var isSpacePressed = false
   private var dragCheckTimer: Timer?
   private var overlayWindow: OverlayWindow?
-
-  public var isMonitoring: Bool { eventTap != nil }
-
   private var isDragging: Bool = false
   private var isSnapping: Bool = false
   private var frontMostWindow: AXUIElement? = nil
@@ -38,6 +36,7 @@ class EventMonitor {
   private var windowCoordinatesStart: CGPoint? = nil
   private var windowCoordinatesEnd: CGPoint? = nil
   public private(set) var activeScreen: NSScreen? = nil
+  private var snapToCoordinates: CGRect? = nil
 
   private init() {}
 
@@ -151,21 +150,20 @@ class EventMonitor {
     guard activeScreen != nil else { return reset() }
     guard mouseCoordinatesEnd != mouseCoordinatesStart else { return reset() }
     guard windowCoordinatesEnd != windowCoordinatesStart else { return reset() }
+    guard snapToCoordinates != nil else { return reset() }
 
-    // window moved
-    let snapToCoords = ScreenManager.shared.convertCoordinates(
-      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
-      screen: activeScreen!
-    )
-    WindowManager.shared.setWindow(
-      window: self.frontMostWindow!,
-      screen: activeScreen!,
-      frame: snapToCoords
-    )
+    if !Configuration.shared.moveOnActivate {
+      WindowManager.shared.setWindow(
+        window: self.frontMostWindow!,
+        screen: activeScreen!,
+        frame: snapToCoordinates!
+      )
+    }
     reset()
   }
 
   private func leftMouseDragged() {
+    guard isSnapping else { return reset() }
     let currentMouse = getMouseCoordinates()
 
     // Only constrain the mouse if the user has enabled this setting
@@ -173,7 +171,19 @@ class EventMonitor {
       constrainMouseToActiveScreen(currentMouse)
     }
     mouseCoordinatesEnd = currentMouse
-    updateOverlayPreview()
+
+    snapToCoordinates = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
+      screen: activeScreen!
+    )
+    updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
+    if Configuration.shared.moveOnActivate {
+      WindowManager.shared.setWindow(
+        window: self.frontMostWindow!,
+        screen: activeScreen!,
+        frame: snapToCoordinates!
+      )
+    }
   }
 
   private func reset() {
@@ -185,6 +195,7 @@ class EventMonitor {
     isDragging = false
     isSnapping = false
     activeScreen = nil
+    snapToCoordinates = nil
 
     // Hide and dispose of overlay window
     if overlayWindow != nil {
@@ -202,8 +213,20 @@ class EventMonitor {
     mouseCoordinatesStart = getMouseCoordinates()
     mouseCoordinatesEnd = mouseCoordinatesStart
 
+    snapToCoordinates = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesStart!),
+      screen: activeScreen!
+    )
+
     // Show initial overlay preview
-    updateOverlayPreview()
+    if Configuration.shared.moveOnActivate {
+      WindowManager.shared.setWindow(
+        window: self.frontMostWindow!,
+        screen: activeScreen!,
+        frame: snapToCoordinates!
+      )
+    }
+    updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
   }
 
   private func constrainMouseToActiveScreen(_ mousePosition: CGPoint) {
@@ -246,7 +269,7 @@ class EventMonitor {
     }
   }
 
-  private func updateOverlayPreview() {
+  private func updateOverlayPreview(snapToCoordinates: CGRect) {
     guard isSnapping, let activeScreen = activeScreen,
       let mouseStart = mouseCoordinatesStart,
       let mouseEnd = mouseCoordinatesEnd
@@ -254,18 +277,12 @@ class EventMonitor {
       return
     }
 
-    // Calculate the grid coordinates using ScreenManager
-    let snapToCoords = ScreenManager.shared.convertCoordinates(
-      coords: (start: mouseStart, end: mouseEnd),
-      screen: activeScreen
-    )
-
     // Create or update overlay window
     if overlayWindow == nil {
-      overlayWindow = OverlayWindow(frame: snapToCoords, screen: activeScreen)
+      overlayWindow = OverlayWindow(frame: snapToCoordinates, screen: activeScreen)
       overlayWindow?.orderFront(nil)
     } else {
-      overlayWindow?.update(frame: snapToCoords, screen: activeScreen)
+      overlayWindow?.update(frame: snapToCoordinates, screen: activeScreen)
     }
   }
 
