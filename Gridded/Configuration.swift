@@ -32,7 +32,7 @@ final class Configuration: ObservableObject {
     autoStart = defaults.getValue(forKey: "autoStart") ?? false
     activateKey = defaults.getValue(forKey: "activateKey") ?? 49
     constrainMouse = defaults.getValue(forKey: "constrainMouse") ?? true
-    moveOnActivate = defaults.getValue(forKey: "moveOnActivate") ?? true
+    moveOnActivate = defaults.getValue(forKey: "moveOnActivate") ?? false
 
     $columns
       .sink { defaults.set($0, forKey: "gridColumns") }

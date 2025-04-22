@@ -102,7 +102,7 @@ struct PreferencesView: View {
         }
         VStack {
           Toggle(isOn: $config.moveOnActivate) {
-            Text("Move and resize window while snapping")
+            Text("Move and resize window while snapping (experimental)")
           }
           Text(
             "The window will be moved and resized immediately without waiting for mouse release."
