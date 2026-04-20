@@ -27,6 +27,12 @@ private typealias CGSConnectionID = UInt32
 
   private let logger = Logger(label: "WindowManager")
 
+  private func primaryScreenHeight() -> CGFloat {
+    return NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height
+      ?? NSScreen.main?.frame.height
+      ?? 0
+  }
+
   // Returns the frontmost (active) window of the currently focused application.
   public func getFrontmostWindow() -> AXUIElement? {
     guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
@@ -112,12 +118,11 @@ private typealias CGSConnectionID = UInt32
       AXValueGetValue(sizeValueRef as! AXValue, .cgSize, &size)
     }
 
-    let primaryScreenHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height
-      ?? NSScreen.main!.frame.height
+    let primaryHeight = primaryScreenHeight()
 
     return CGRect(
       x: position.x,
-      y: primaryScreenHeight - position.y - size.height,
+      y: primaryHeight - position.y - size.height,
       width: size.width,
       height: size.height
     )
@@ -140,11 +145,10 @@ private typealias CGSConnectionID = UInt32
     // Electron and some apps respond better to AX changes with enhanced UI mode enabled
     let appRef = AXUIElementCreateApplication(pid)
     AXUIElementSetAttributeValue(appRef, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-    let primaryScreenHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? NSScreen.main!.frame.height
-
+    let primaryHeight = primaryScreenHeight()
     let frame = CGRect(
       x: _frame.origin.x,
-      y: primaryScreenHeight - _frame.origin.y - _frame.height,
+      y: primaryHeight - _frame.origin.y - _frame.height,
       width: _frame.width,
       height: _frame.height
     )

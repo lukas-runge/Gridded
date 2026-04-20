@@ -231,23 +231,43 @@ class EventMonitor {
     }
 
     guard isSnapping else { return reset() }
-    let currentMouse = getMouseCoordinates()
+    var currentMouse = getMouseCoordinates()
+    let hoveredScreen = ScreenManager.shared.getScreen(at: currentMouse)
+
+    if let hoveredScreen,
+      let previousScreen = activeScreen,
+      previousScreen != hoveredScreen
+    {
+      logger.debug("active screen changed during drag")
+      overlayWindow?.orderOut(nil)
+      overlayWindow = nil
+    }
 
     // Only constrain the mouse if the user has enabled this setting
     if Configuration.shared.constrainMouse {
-      constrainMouseToActiveScreen(currentMouse)
+      currentMouse = constrainMouseForSnapping(
+        currentMouse,
+        hoveredScreen: hoveredScreen
+      )
     }
+
+    if hoveredScreen != nil {
+      activeScreen = ScreenManager.shared.getScreen(at: currentMouse) ?? hoveredScreen ?? activeScreen
+    }
+
+    guard let activeScreen else { return }
+
     mouseCoordinatesEnd = currentMouse
 
     snapToCoordinates = ScreenManager.shared.convertCoordinates(
       coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
-      screen: activeScreen!
+      screen: activeScreen
     )
     updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
     if Configuration.shared.moveOnActivate {
       WindowManager.shared.setWindow(
         window: self.frontMostWindow!,
-        screen: activeScreen!,
+        screen: activeScreen,
         frame: snapToCoordinates!
       )
     }
@@ -280,6 +300,7 @@ class EventMonitor {
 
     guard isDragging else { return }
     isSnapping = true
+    activeScreen = ScreenManager.shared.getActiveScreen() ?? activeScreen
     guard activeScreen != nil else { return }
     if let snapWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
       ?? WindowManager.shared.getFrontmostWindow()
@@ -371,44 +392,23 @@ class EventMonitor {
     event.post(tap: .cghidEventTap)
   }
 
-  private func constrainMouseToActiveScreen(_ mousePosition: CGPoint) {
-    guard let activeScreen = activeScreen else { return }
-
-    // Get the screen frame in global coordinates
-    let visibleFrame = activeScreen.visibleFrame
-
-    let margin: CGFloat = 5
-
-    let minX = visibleFrame.minX + margin
-    let maxX = visibleFrame.maxX - margin
-    let minY = visibleFrame.minY + margin
-    let maxY = visibleFrame.maxY - margin
-
-    // Constrain the mouse position to the screen bounds
-    var newMousePosition = mousePosition
-
-    var moved: Bool = false
-    if mousePosition.x > maxX {
-      newMousePosition.x = maxX
-      moved = true
-    }
-    if mousePosition.x < minX {
-      newMousePosition.x = minX
-      moved = true
-    }
-    if mousePosition.y > maxY {
-      newMousePosition.y = maxY
-      moved = true
-    }
-    if mousePosition.y < minY {
-      newMousePosition.y = minY
-      moved = true
+  private func constrainMouseForSnapping(_ mousePosition: CGPoint, hoveredScreen: NSScreen?) -> CGPoint {
+    // If the pointer is on any screen, do not interfere; this preserves cross-monitor dragging.
+    if hoveredScreen != nil {
+      return mousePosition
     }
 
-    if moved {
-      newMousePosition.y = activeScreen.frame.maxY - newMousePosition.y
-      CGWarpMouseCursorPosition(newMousePosition)
-    }
+    guard let activeScreen else { return mousePosition }
+
+    let frame = activeScreen.visibleFrame
+    let margin: CGFloat = 3
+    let clamped = CGPoint(
+      x: min(max(mousePosition.x, frame.minX + margin), frame.maxX - margin),
+      y: min(max(mousePosition.y, frame.minY + margin), frame.maxY - margin)
+    )
+
+    // Use logical clamping only; physical cursor warping causes monitor hops on some layouts.
+    return clamped
   }
 
   private func updateOverlayPreview(snapToCoordinates: CGRect) {
