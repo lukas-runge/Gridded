@@ -16,6 +16,11 @@ struct SnapToCoordinates: Hashable {
   var end: CGPoint
 }
 
+private typealias CGSConnectionID = UInt32
+@_silgen_name("CGSMainConnectionID") private func CGSMainConnectionID() -> CGSConnectionID
+@_silgen_name("CGSDisableUpdate") private func CGSDisableUpdate(_ connection: CGSConnectionID)
+@_silgen_name("CGSReenableUpdate") private func CGSReenableUpdate(_ connection: CGSConnectionID)
+
 @Observable class WindowManager {
 
   static let shared = WindowManager()
@@ -57,30 +62,66 @@ struct SnapToCoordinates: Hashable {
       }, we will need to convert to top left origin used by AX
     */
 
-    logger.info(
-      "Got frame\t\t(x: \(_frame.origin.x), y: \(_frame.origin.y), width: \(_frame.width), height: \(_frame.height))"
-    )
+    var pid: pid_t = 0
+    AXUIElementGetPid(window, &pid)
+
+    // Electron and some apps respond better to AX changes with enhanced UI mode enabled
+    let appRef = AXUIElementCreateApplication(pid)
+    AXUIElementSetAttributeValue(appRef, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+    let primaryScreenHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? NSScreen.main!.frame.height
 
     let frame = CGRect(
       x: _frame.origin.x,
-      y: screen.frame.maxY - _frame.origin.y - _frame.height,
+      y: primaryScreenHeight - _frame.origin.y - _frame.height,
       width: _frame.width,
       height: _frame.height
     )
 
-    logger.info(
-      "Set frame\t\t(x: \(frame.origin.x), y: \(frame.origin.y), width: \(frame.width), height: \(frame.height))"
-    )
+    let targetPosition = CGPoint(x: frame.origin.x, y: frame.origin.y)
+    let targetSize = CGSize(width: frame.size.width, height: frame.size.height)
 
-    var position = CGPoint(x: frame.origin.x, y: frame.origin.y)
-    var size = CGSize(width: frame.size.width, height: frame.size.height)
+    applyWindowFrame(window: window, targetPosition: targetPosition, targetSize: targetSize, attempt: 1)
+  }
 
-    // Create AXValues with the mutable variables
-    if let positionValue = AXValueCreate(.cgPoint, &position),
-      let sizeValue = AXValueCreate(.cgSize, &size)
-    {
-      AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
-      AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+  private func applyWindowFrame(window: AXUIElement, targetPosition: CGPoint, targetSize: CGSize, attempt: Int) {
+    let maxAttempts = 10
+    guard attempt <= maxAttempts else {
+      logger.notice("setWindow: giving up after \(maxAttempts) attempts")
+      return
+    }
+
+    var position = targetPosition
+    var size = targetSize
+
+    guard let positionValue = AXValueCreate(.cgPoint, &position),
+          let sizeValue = AXValueCreate(.cgSize, &size) else {
+      return
+    }
+
+    // Apply size first, then position (some apps need this order)
+    AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+    AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
+    // Set size again after position — some apps clamp size based on position
+    AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+
+    // Schedule a verification+retry — the app's drag-end handler may revert our changes
+    let delay = 0.05 * Double(attempt)
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      var checkPos = CGPoint.zero
+      var checkSize = CGSize.zero
+      var pRef: AnyObject?
+      var sRef: AnyObject?
+      if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &pRef) == .success,
+         let v = pRef { AXValueGetValue(v as! AXValue, .cgPoint, &checkPos) }
+      if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sRef) == .success,
+         let v = sRef { AXValueGetValue(v as! AXValue, .cgSize, &checkSize) }
+
+      let posOk = abs(checkPos.x - targetPosition.x) <= 2 && abs(checkPos.y - targetPosition.y) <= 2
+      let sizeOk = abs(checkSize.width - targetSize.width) <= 2 && abs(checkSize.height - targetSize.height) <= 2
+
+      if !posOk || !sizeOk {
+        self?.applyWindowFrame(window: window, targetPosition: targetPosition, targetSize: targetSize, attempt: attempt + 1)
+      }
     }
   }
 }

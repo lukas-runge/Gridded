@@ -149,15 +149,21 @@ class EventMonitor {
     guard isSnapping else { return reset() }
     guard activeScreen != nil else { return reset() }
     guard mouseCoordinatesEnd != mouseCoordinatesStart else { return reset() }
-    guard windowCoordinatesEnd != windowCoordinatesStart else { return reset() }
     guard snapToCoordinates != nil else { return reset() }
 
     if !Configuration.shared.moveOnActivate {
-      WindowManager.shared.setWindow(
-        window: self.frontMostWindow!,
-        screen: activeScreen!,
-        frame: snapToCoordinates!
-      )
+      // Capture state before reset — we must defer setWindow until after this
+      // event-tap callback returns so the mouseUp propagates to the app first.
+      // The target app's drag handler needs time to process the mouseUp and
+      // exit its drag state; applyWindowFrame retries if the app reverts changes.
+      let window = self.frontMostWindow!
+      let screen = activeScreen!
+      let frame = snapToCoordinates!
+      reset()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        WindowManager.shared.setWindow(window: window, screen: screen, frame: frame)
+      }
+      return
     }
     reset()
   }
