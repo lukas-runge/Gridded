@@ -61,9 +61,11 @@ struct SnapToCoordinates: Hashable {
       "Got frame\t\t(x: \(_frame.origin.x), y: \(_frame.origin.y), width: \(_frame.width), height: \(_frame.height))"
     )
 
+    let primaryScreenHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? NSScreen.main!.frame.height
+
     let frame = CGRect(
       x: _frame.origin.x,
-      y: screen.frame.maxY - _frame.origin.y - _frame.height,
+      y: primaryScreenHeight - _frame.origin.y - _frame.height,
       width: _frame.width,
       height: _frame.height
     )
