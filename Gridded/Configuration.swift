@@ -19,6 +19,7 @@ final class Configuration: ObservableObject {
   @Published var activateKey: Int
   @Published var constrainMouse: Bool
   @Published var moveOnActivate: Bool
+  @Published var resetWindowOnEscape: Bool
   @Published var accessibilityPermission: Bool = false
 
   static let shared = Configuration()
@@ -33,6 +34,7 @@ final class Configuration: ObservableObject {
     activateKey = defaults.getValue(forKey: "activateKey") ?? 49
     constrainMouse = defaults.getValue(forKey: "constrainMouse") ?? true
     moveOnActivate = defaults.getValue(forKey: "moveOnActivate") ?? false
+    resetWindowOnEscape = defaults.getValue(forKey: "resetWindowOnEscape") ?? false
 
     $columns
       .sink { defaults.set($0, forKey: "gridColumns") }
@@ -64,6 +66,10 @@ final class Configuration: ObservableObject {
 
     $moveOnActivate
       .sink { defaults.set($0, forKey: "moveOnActivate") }
+      .store(in: &cancellables)
+
+    $resetWindowOnEscape
+      .sink { defaults.set($0, forKey: "resetWindowOnEscape") }
       .store(in: &cancellables)
 
     if defaults.object(forKey: "autoStart") == nil {

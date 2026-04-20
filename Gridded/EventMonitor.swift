@@ -20,6 +20,8 @@ import Logging
 class EventMonitor {
   static let shared = EventMonitor()
 
+  private static let escapeKeyCode: Int64 = 53
+
   private let logger = Logger(label: "EventMonitor")
 
   public var isMonitoring: Bool { eventTap != nil }
@@ -35,6 +37,7 @@ class EventMonitor {
   private var mouseCoordinatesEnd: CGPoint? = nil
   private var windowCoordinatesStart: CGPoint? = nil
   private var windowCoordinatesEnd: CGPoint? = nil
+  private var originalWindowFrame: CGRect? = nil
   public private(set) var activeScreen: NSScreen? = nil
   private var snapToCoordinates: CGRect? = nil
 
@@ -73,6 +76,7 @@ class EventMonitor {
       eventsOfInterest: CGEventMask(eventMask),
       callback: { _, type, event, refcon in
         let handledEvent = EventMonitor.shared.handle(event: event, type: type)
+        guard let handledEvent else { return nil }
         return Unmanaged.passUnretained(handledEvent)
       },
       userInfo: nil
@@ -110,7 +114,7 @@ class EventMonitor {
 
   // MARK: Event handlers
 
-  private func handle(event: CGEvent, type: CGEventType) -> CGEvent {
+  private func handle(event: CGEvent, type: CGEventType) -> CGEvent? {
     let activateKey = Configuration.shared.activateKey
     switch type {
     case .leftMouseDown:
@@ -128,7 +132,12 @@ class EventMonitor {
       logger.debug("right mouse down")
       startSnapping()
     case .keyDown:
-      if event.getIntegerValueField(.keyboardEventKeycode) == activateKey {
+      let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+      if keyCode == Self.escapeKeyCode, cancelSnapping() {
+        logger.debug("escape down")
+        return nil
+      }
+      if keyCode == activateKey {
         logger.debug("space down")
         startSnapping()
       }
@@ -139,10 +148,38 @@ class EventMonitor {
     return event
   }
 
+  @discardableResult
+  private func cancelSnapping() -> Bool {
+    guard isSnapping else { return false }
+    logger.debug("cancel snapping")
+
+    if Configuration.shared.resetWindowOnEscape {
+      restoreWindowFrameAfterEscape()
+      reset()
+      return true
+    }
+
+    mouseCoordinatesEnd = nil
+    mouseCoordinatesStart = nil
+    isSnapping = false
+    snapToCoordinates = nil
+
+    if overlayWindow != nil {
+      overlayWindow?.orderOut(nil)
+      overlayWindow = nil
+    }
+
+    return true
+  }
+
   private func leftMouseDown() {
     reset()
     activeScreen = ScreenManager.shared.getActiveScreen()
     isDragging = true
+    frontMostWindow = WindowManager.shared.getFrontmostWindow()
+    if let frontMostWindow {
+      originalWindowFrame = WindowManager.shared.getWindowFrame(window: frontMostWindow)
+    }
   }
 
   private func leftMouseUp() {
@@ -198,6 +235,7 @@ class EventMonitor {
     windowCoordinatesEnd = nil
     windowCoordinatesStart = nil
     frontMostWindow = nil
+    originalWindowFrame = nil
     isDragging = false
     isSnapping = false
     activeScreen = nil
@@ -233,6 +271,21 @@ class EventMonitor {
       )
     }
     updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
+  }
+
+  private func restoreWindowFrameAfterEscape() {
+    guard let frontMostWindow,
+      let originalWindowFrame,
+      let activeScreen
+    else {
+      return
+    }
+
+    WindowManager.shared.setWindow(
+      window: frontMostWindow,
+      screen: activeScreen,
+      frame: originalWindowFrame
+    )
   }
 
   private func constrainMouseToActiveScreen(_ mousePosition: CGPoint) {
@@ -277,8 +330,8 @@ class EventMonitor {
 
   private func updateOverlayPreview(snapToCoordinates: CGRect) {
     guard isSnapping, let activeScreen = activeScreen,
-      let mouseStart = mouseCoordinatesStart,
-      let mouseEnd = mouseCoordinatesEnd
+      mouseCoordinatesStart != nil,
+      mouseCoordinatesEnd != nil
     else {
       return
     }

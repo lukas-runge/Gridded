@@ -113,6 +113,19 @@ struct PreferencesView: View {
           .multilineTextAlignment(.center)
           .lineLimit(nil)
         }
+        VStack {
+          Toggle(isOn: $config.resetWindowOnEscape) {
+            Text("Pressing Escape restores the original window frame")
+          }
+          Text(
+            "Escape will move the window back to where it was when you grabbed it and will fully end the drag session until you release and grab the title bar again."
+          )
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .frame(width: 350)
+          .multilineTextAlignment(.center)
+          .lineLimit(nil)
+        }
       }
     }
   }

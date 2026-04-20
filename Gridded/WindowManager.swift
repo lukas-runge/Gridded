@@ -51,6 +51,57 @@ private typealias CGSConnectionID = UInt32
     return nil
   }
 
+  public func getWindowFrame(window: AXUIElement) -> CGRect? {
+    var pid: pid_t = 0
+    AXUIElementGetPid(window, &pid)
+
+    // Some apps only expose reliable AX frame attributes with enhanced UI mode enabled.
+    let appRef = AXUIElementCreateApplication(pid)
+    AXUIElementSetAttributeValue(appRef, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+
+    var position = CGPoint.zero
+    var size = CGSize.zero
+
+    // Prefer AXFrame when available; some apps expose this more reliably than position+size.
+    var frameValueRef: AnyObject?
+    if AXUIElementCopyAttributeValue(window, "AXFrame" as CFString, &frameValueRef) == .success,
+       let frameValueRef,
+       AXValueGetType(frameValueRef as! AXValue) == .cgRect {
+      var frame = CGRect.zero
+      AXValueGetValue(frameValueRef as! AXValue, .cgRect, &frame)
+      position = frame.origin
+      size = frame.size
+    } else {
+      var positionValueRef: AnyObject?
+      var sizeValueRef: AnyObject?
+
+      guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValueRef)
+        == .success,
+        let positionValueRef,
+        AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValueRef) == .success,
+        let sizeValueRef,
+        AXValueGetType(positionValueRef as! AXValue) == .cgPoint,
+        AXValueGetType(sizeValueRef as! AXValue) == .cgSize
+      else {
+        logger.notice("failed to get window frame")
+        return nil
+      }
+
+      AXValueGetValue(positionValueRef as! AXValue, .cgPoint, &position)
+      AXValueGetValue(sizeValueRef as! AXValue, .cgSize, &size)
+    }
+
+    let primaryScreenHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height
+      ?? NSScreen.main!.frame.height
+
+    return CGRect(
+      x: position.x,
+      y: primaryScreenHeight - position.y - size.height,
+      width: size.width,
+      height: size.height
+    )
+  }
+
   // Moves and resizes the given window to a new CGRect.
   public func setWindow(window: AXUIElement, screen: NSScreen, frame _frame: CGRect) {
     /*
