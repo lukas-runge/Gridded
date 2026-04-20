@@ -155,8 +155,22 @@ class EventMonitor {
     logger.debug("cancel snapping")
 
     if Configuration.shared.resetWindowOnEscape {
-      restoreWindowFrameAfterEscape()
+      let window = frontMostWindow
+      let screen = activeScreen
+      let originalWindowFrame = originalWindowFrame
+
+      endActiveWindowDrag()
       reset()
+
+      if let window, let screen, let originalWindowFrame {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+          WindowManager.shared.setWindow(
+            window: window,
+            screen: screen,
+            frame: originalWindowFrame
+          )
+        }
+      }
       return true
     }
 
@@ -344,19 +358,17 @@ class EventMonitor {
     isDragging = deltaX > Self.dragDetectionThreshold || deltaY > Self.dragDetectionThreshold
   }
 
-  private func restoreWindowFrameAfterEscape() {
-    guard let frontMostWindow,
-      let originalWindowFrame,
-      let activeScreen
-    else {
+  private func endActiveWindowDrag() {
+    guard let event = CGEvent(
+      mouseEventSource: nil,
+      mouseType: .leftMouseUp,
+      mouseCursorPosition: getMouseCoordinates(),
+      mouseButton: .left
+    ) else {
       return
     }
 
-    WindowManager.shared.setWindow(
-      window: frontMostWindow,
-      screen: activeScreen,
-      frame: originalWindowFrame
-    )
+    event.post(tap: .cghidEventTap)
   }
 
   private func constrainMouseToActiveScreen(_ mousePosition: CGPoint) {
