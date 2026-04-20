@@ -51,6 +51,27 @@ private typealias CGSConnectionID = UInt32
     return nil
   }
 
+  public func getWindowAtPoint(_ point: CGPoint) -> AXUIElement? {
+    let systemWideElement = AXUIElementCreateSystemWide()
+    var hitElementRef: AXUIElement?
+
+    let hitResult = AXUIElementCopyElementAtPosition(
+      systemWideElement,
+      Float(point.x),
+      Float(point.y),
+      &hitElementRef
+    )
+
+    if hitResult == .success,
+      let hitElementRef,
+      let window = resolveWindowElement(from: hitElementRef)
+    {
+      return window
+    }
+
+    return nil
+  }
+
   public func getWindowFrame(window: AXUIElement) -> CGRect? {
     var pid: pid_t = 0
     AXUIElementGetPid(window, &pid)
@@ -174,5 +195,39 @@ private typealias CGSConnectionID = UInt32
         self?.applyWindowFrame(window: window, targetPosition: targetPosition, targetSize: targetSize, attempt: attempt + 1)
       }
     }
+  }
+
+  private func resolveWindowElement(from element: AXUIElement) -> AXUIElement? {
+    var windowValue: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowValue) == .success,
+       let windowValue,
+       CFGetTypeID(windowValue) == AXUIElementGetTypeID() {
+      return unsafeBitCast(windowValue, to: AXUIElement.self)
+    }
+
+    var current: AXUIElement? = element
+    var depth = 0
+    while let currentElement = current, depth < 10 {
+      var roleRef: AnyObject?
+      if AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &roleRef) == .success,
+         let role = roleRef as? String,
+         role == kAXWindowRole {
+        return currentElement
+      }
+
+      var parentValue: CFTypeRef?
+      if AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parentValue) != .success {
+        break
+      }
+      guard let parentValue,
+        CFGetTypeID(parentValue) == AXUIElementGetTypeID()
+      else {
+        break
+      }
+      current = unsafeBitCast(parentValue, to: AXUIElement.self)
+      depth += 1
+    }
+
+    return nil
   }
 }

@@ -21,6 +21,7 @@ class EventMonitor {
   static let shared = EventMonitor()
 
   private static let escapeKeyCode: Int64 = 53
+  private static let dragDetectionThreshold: CGFloat = 2
 
   private let logger = Logger(label: "EventMonitor")
 
@@ -175,10 +176,14 @@ class EventMonitor {
   private func leftMouseDown() {
     reset()
     activeScreen = ScreenManager.shared.getActiveScreen()
-    isDragging = true
-    frontMostWindow = WindowManager.shared.getFrontmostWindow()
-    if let frontMostWindow {
-      originalWindowFrame = WindowManager.shared.getWindowFrame(window: frontMostWindow)
+    isDragging = !Configuration.shared.requireWindowDragBeforeSnapping
+    captureWindowForCurrentDrag()
+
+    // Refresh after the mouse-down event propagates so focus changes are reflected.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      guard !self.isSnapping else { return }
+      self.captureWindowForCurrentDrag()
     }
   }
 
@@ -206,6 +211,11 @@ class EventMonitor {
   }
 
   private func leftMouseDragged() {
+    if !isSnapping {
+      updateDraggingState()
+      return
+    }
+
     guard isSnapping else { return reset() }
     let currentMouse = getMouseCoordinates()
 
@@ -249,10 +259,25 @@ class EventMonitor {
   }
 
   private func startSnapping() {
+    if Configuration.shared.requireWindowDragBeforeSnapping {
+      updateDraggingState()
+      guard isDragging else { return }
+    }
+
     guard isDragging else { return }
     isSnapping = true
     guard activeScreen != nil else { return }
-    frontMostWindow = WindowManager.shared.getFrontmostWindow()
+    if let snapWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
+      ?? WindowManager.shared.getFrontmostWindow()
+    {
+      if let capturedWindow = frontMostWindow,
+        !CFEqual(capturedWindow, snapWindow)
+      {
+        // We captured a different window at grab time; disable restore to avoid jumping a wrong window.
+        originalWindowFrame = nil
+      }
+      frontMostWindow = snapWindow
+    }
     windowCoordinatesStart = getWindowCoordinates()
     mouseCoordinatesStart = getMouseCoordinates()
     mouseCoordinatesEnd = mouseCoordinatesStart
@@ -271,6 +296,52 @@ class EventMonitor {
       )
     }
     updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
+  }
+
+  private func captureWindowForCurrentDrag() {
+    frontMostWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
+      ?? WindowManager.shared.getFrontmostWindow()
+    windowCoordinatesStart = getWindowCoordinates()
+    if let frontMostWindow {
+      originalWindowFrame = WindowManager.shared.getWindowFrame(window: frontMostWindow)
+    } else {
+      originalWindowFrame = nil
+    }
+  }
+
+  private func updateDraggingState() {
+    guard Configuration.shared.requireWindowDragBeforeSnapping else {
+      isDragging = true
+      return
+    }
+
+    guard let frontMostWindow else {
+      isDragging = false
+      return
+    }
+
+    guard let windowCoordinatesStart else {
+      isDragging = false
+      return
+    }
+
+    var currentWindowPosition = CGPoint.zero
+    var value: AnyObject?
+
+    guard AXUIElementCopyAttributeValue(frontMostWindow, kAXPositionAttribute as CFString, &value)
+      == .success,
+      let value,
+      AXValueGetType(value as! AXValue) == .cgPoint
+    else {
+      isDragging = false
+      return
+    }
+
+    AXValueGetValue(value as! AXValue, .cgPoint, &currentWindowPosition)
+
+    let deltaX = abs(currentWindowPosition.x - windowCoordinatesStart.x)
+    let deltaY = abs(currentWindowPosition.y - windowCoordinatesStart.y)
+    isDragging = deltaX > Self.dragDetectionThreshold || deltaY > Self.dragDetectionThreshold
   }
 
   private func restoreWindowFrameAfterEscape() {

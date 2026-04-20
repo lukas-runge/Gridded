@@ -114,6 +114,19 @@ struct PreferencesView: View {
           .lineLimit(nil)
         }
         VStack {
+          Toggle(isOn: $config.requireWindowDragBeforeSnapping) {
+            Text("Only allow snapping after the window has already moved")
+          }
+          Text(
+            "When enabled, space or secondary click will only enter grid mode after the dragged window has actually changed position."
+          )
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .frame(width: 350)
+          .multilineTextAlignment(.center)
+          .lineLimit(nil)
+        }
+        VStack {
           Toggle(isOn: $config.resetWindowOnEscape) {
             Text("Pressing Escape restores the original window frame")
           }

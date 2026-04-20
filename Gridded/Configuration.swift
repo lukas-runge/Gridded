@@ -19,6 +19,7 @@ final class Configuration: ObservableObject {
   @Published var activateKey: Int
   @Published var constrainMouse: Bool
   @Published var moveOnActivate: Bool
+  @Published var requireWindowDragBeforeSnapping: Bool
   @Published var resetWindowOnEscape: Bool
   @Published var accessibilityPermission: Bool = false
 
@@ -34,6 +35,8 @@ final class Configuration: ObservableObject {
     activateKey = defaults.getValue(forKey: "activateKey") ?? 49
     constrainMouse = defaults.getValue(forKey: "constrainMouse") ?? true
     moveOnActivate = defaults.getValue(forKey: "moveOnActivate") ?? false
+    requireWindowDragBeforeSnapping =
+      defaults.getValue(forKey: "requireWindowDragBeforeSnapping") ?? true
     resetWindowOnEscape = defaults.getValue(forKey: "resetWindowOnEscape") ?? false
 
     $columns
@@ -66,6 +69,10 @@ final class Configuration: ObservableObject {
 
     $moveOnActivate
       .sink { defaults.set($0, forKey: "moveOnActivate") }
+      .store(in: &cancellables)
+
+    $requireWindowDragBeforeSnapping
+      .sink { defaults.set($0, forKey: "requireWindowDragBeforeSnapping") }
       .store(in: &cancellables)
 
     $resetWindowOnEscape
