@@ -16,6 +16,11 @@ struct SnapToCoordinates: Hashable {
   var end: CGPoint
 }
 
+struct AXWindowFrame {
+  var position: CGPoint
+  var size: CGSize
+}
+
 private typealias CGSConnectionID = UInt32
 @_silgen_name("CGSMainConnectionID") private func CGSMainConnectionID() -> CGSConnectionID
 @_silgen_name("CGSDisableUpdate") private func CGSDisableUpdate(_ connection: CGSConnectionID)
@@ -26,6 +31,16 @@ private typealias CGSConnectionID = UInt32
   static let shared = WindowManager()
 
   private let logger = Logger(label: "WindowManager")
+
+  private func primaryScreenHeight() -> CGFloat {
+    return NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height
+      ?? NSScreen.main?.frame.height
+      ?? 0
+  }
+
+  public func appKitPointToAXPoint(_ point: CGPoint) -> CGPoint {
+    CGPoint(x: point.x, y: primaryScreenHeight() - point.y)
+  }
 
   // Returns the frontmost (active) window of the currently focused application.
   public func getFrontmostWindow() -> AXUIElement? {
@@ -41,14 +56,92 @@ private typealias CGSConnectionID = UInt32
       appElement, kAXFocusedWindowAttribute as CFString, &window)
 
     if result == .success, let windowElement = window {
-      logger.debug(
-        "successfully got frontmost window for app: \(frontmostApp.localizedName ?? "unknown")"
-      )
+      logger.debug("successfully got frontmost window for app: \(frontmostApp.localizedName ?? "unknown")")
       return (windowElement as! AXUIElement)
     }
 
     logger.notice("failed to get frontmost window with error: \(result.rawValue)")
     return nil
+  }
+
+  public func getWindowAtPoint(_ point: CGPoint) -> AXUIElement? {
+    let systemWideElement = AXUIElementCreateSystemWide()
+    var hitElementRef: AXUIElement?
+
+    // NSEvent.mouseLocation uses AppKit coords (origin bottom-left, y up).
+    // AXUIElementCopyElementAtPosition uses CG/AX coords (origin top-left, y down).
+    let axPoint = appKitPointToAXPoint(point)
+    let hitResult = AXUIElementCopyElementAtPosition(
+      systemWideElement,
+      Float(axPoint.x),
+      Float(axPoint.y),
+      &hitElementRef
+    )
+
+    if hitResult == .success,
+      let hitElementRef,
+      let window = resolveWindowElement(from: hitElementRef)
+    {
+      return window
+    }
+
+    return nil
+  }
+
+  public func getWindowFrame(window: AXUIElement) -> CGRect? {
+    guard let axFrame = getAXWindowFrame(window: window) else { return nil }
+
+    let primaryHeight = primaryScreenHeight()
+
+    return CGRect(
+      x: axFrame.position.x,
+      y: primaryHeight - axFrame.position.y - axFrame.size.height,
+      width: axFrame.size.width,
+      height: axFrame.size.height
+    )
+  }
+
+  public func getAXWindowFrame(window: AXUIElement) -> AXWindowFrame? {
+    var pid: pid_t = 0
+    AXUIElementGetPid(window, &pid)
+
+    // Some apps only expose reliable AX frame attributes with enhanced UI mode enabled.
+    let appRef = AXUIElementCreateApplication(pid)
+    AXUIElementSetAttributeValue(appRef, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+
+    var position = CGPoint.zero
+    var size = CGSize.zero
+
+    // Prefer AXFrame when available; some apps expose this more reliably than position+size.
+    var frameValueRef: AnyObject?
+    if AXUIElementCopyAttributeValue(window, "AXFrame" as CFString, &frameValueRef) == .success,
+       let frameValueRef,
+       AXValueGetType(frameValueRef as! AXValue) == .cgRect {
+      var frame = CGRect.zero
+      AXValueGetValue(frameValueRef as! AXValue, .cgRect, &frame)
+      position = frame.origin
+      size = frame.size
+    } else {
+      var positionValueRef: AnyObject?
+      var sizeValueRef: AnyObject?
+
+      guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValueRef)
+        == .success,
+        let positionValueRef,
+        AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValueRef) == .success,
+        let sizeValueRef,
+        AXValueGetType(positionValueRef as! AXValue) == .cgPoint,
+        AXValueGetType(sizeValueRef as! AXValue) == .cgSize
+      else {
+        logger.notice("failed to get window frame")
+        return nil
+      }
+
+      AXValueGetValue(positionValueRef as! AXValue, .cgPoint, &position)
+      AXValueGetValue(sizeValueRef as! AXValue, .cgSize, &size)
+    }
+
+    return AXWindowFrame(position: position, size: size)
   }
 
   // Moves and resizes the given window to a new CGRect.
@@ -68,11 +161,10 @@ private typealias CGSConnectionID = UInt32
     // Electron and some apps respond better to AX changes with enhanced UI mode enabled
     let appRef = AXUIElementCreateApplication(pid)
     AXUIElementSetAttributeValue(appRef, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-    let primaryScreenHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? NSScreen.main!.frame.height
-
+    let primaryHeight = primaryScreenHeight()
     let frame = CGRect(
       x: _frame.origin.x,
-      y: primaryScreenHeight - _frame.origin.y - _frame.height,
+      y: primaryHeight - _frame.origin.y - _frame.height,
       width: _frame.width,
       height: _frame.height
     )
@@ -81,6 +173,15 @@ private typealias CGSConnectionID = UInt32
     let targetSize = CGSize(width: frame.size.width, height: frame.size.height)
 
     applyWindowFrame(window: window, targetPosition: targetPosition, targetSize: targetSize, attempt: 1)
+  }
+
+  public func restoreWindow(window: AXUIElement, axFrame: AXWindowFrame) {
+    applyWindowFrame(
+      window: window,
+      targetPosition: axFrame.position,
+      targetSize: axFrame.size,
+      attempt: 1
+    )
   }
 
   private func applyWindowFrame(window: AXUIElement, targetPosition: CGPoint, targetSize: CGSize, attempt: Int) {
@@ -123,5 +224,39 @@ private typealias CGSConnectionID = UInt32
         self?.applyWindowFrame(window: window, targetPosition: targetPosition, targetSize: targetSize, attempt: attempt + 1)
       }
     }
+  }
+
+  private func resolveWindowElement(from element: AXUIElement) -> AXUIElement? {
+    var windowValue: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowValue) == .success,
+       let windowValue,
+       CFGetTypeID(windowValue) == AXUIElementGetTypeID() {
+      return unsafeBitCast(windowValue, to: AXUIElement.self)
+    }
+
+    var current: AXUIElement? = element
+    var depth = 0
+    while let currentElement = current, depth < 10 {
+      var roleRef: AnyObject?
+      if AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &roleRef) == .success,
+         let role = roleRef as? String,
+         role == kAXWindowRole {
+        return currentElement
+      }
+
+      var parentValue: CFTypeRef?
+      if AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parentValue) != .success {
+        break
+      }
+      guard let parentValue,
+        CFGetTypeID(parentValue) == AXUIElementGetTypeID()
+      else {
+        break
+      }
+      current = unsafeBitCast(parentValue, to: AXUIElement.self)
+      depth += 1
+    }
+
+    return nil
   }
 }

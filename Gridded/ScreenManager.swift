@@ -16,15 +16,27 @@ class ScreenManager {
 
   public func getActiveScreen() -> NSScreen? {
     let mouseLocation = NSEvent.mouseLocation
+    return getScreen(at: mouseLocation)
+  }
 
+  public func getScreen(at point: CGPoint) -> NSScreen? {
     for screen in NSScreen.screens {
-      if screen.frame.contains(mouseLocation) {
+      if screen.frame.contains(point) {
         return screen
       }
     }
-
-    logger.notice("failed to determine active screen.")
     return nil
+  }
+
+  public func virtualDesktopFrame() -> CGRect {
+    return NSScreen.screens.reduce(CGRect.null) { partialResult, screen in
+      partialResult.union(screen.frame)
+    }
+  }
+
+  public func cocoaPointToQuartz(_ point: CGPoint) -> CGPoint {
+    let desktopFrame = virtualDesktopFrame()
+    return CGPoint(x: point.x, y: desktopFrame.maxY - point.y)
   }
 
   public func getScreenPadding(screen: NSScreen) -> (

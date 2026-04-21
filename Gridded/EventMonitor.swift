@@ -20,6 +20,9 @@ import Logging
 class EventMonitor {
   static let shared = EventMonitor()
 
+  private static let escapeKeyCode: Int64 = 53
+  private static let dragDetectionThreshold: CGFloat = 0
+
   private let logger = Logger(label: "EventMonitor")
 
   public var isMonitoring: Bool { eventTap != nil }
@@ -31,10 +34,12 @@ class EventMonitor {
   private var isDragging: Bool = false
   private var isSnapping: Bool = false
   private var frontMostWindow: AXUIElement? = nil
+  private var originalDraggedWindow: AXUIElement? = nil
   private var mouseCoordinatesStart: CGPoint? = nil
   private var mouseCoordinatesEnd: CGPoint? = nil
   private var windowCoordinatesStart: CGPoint? = nil
   private var windowCoordinatesEnd: CGPoint? = nil
+  private var originalWindowAXFrame: AXWindowFrame? = nil
   public private(set) var activeScreen: NSScreen? = nil
   private var snapToCoordinates: CGRect? = nil
 
@@ -73,6 +78,7 @@ class EventMonitor {
       eventsOfInterest: CGEventMask(eventMask),
       callback: { _, type, event, refcon in
         let handledEvent = EventMonitor.shared.handle(event: event, type: type)
+        guard let handledEvent else { return nil }
         return Unmanaged.passUnretained(handledEvent)
       },
       userInfo: nil
@@ -110,7 +116,7 @@ class EventMonitor {
 
   // MARK: Event handlers
 
-  private func handle(event: CGEvent, type: CGEventType) -> CGEvent {
+  private func handle(event: CGEvent, type: CGEventType) -> CGEvent? {
     let activateKey = Configuration.shared.activateKey
     switch type {
     case .leftMouseDown:
@@ -123,12 +129,19 @@ class EventMonitor {
       if isSnapping {
         logger.debug("left mouse dragged")
         leftMouseDragged()
+      } else {
+        updateDraggingState()
       }
     case .rightMouseDown:
       logger.debug("right mouse down")
       startSnapping()
     case .keyDown:
-      if event.getIntegerValueField(.keyboardEventKeycode) == activateKey {
+      let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+      if keyCode == Self.escapeKeyCode, cancelSnapping() {
+        logger.debug("escape down")
+        return nil
+      }
+      if keyCode == activateKey {
         logger.debug("space down")
         startSnapping()
       }
@@ -139,10 +152,57 @@ class EventMonitor {
     return event
   }
 
+  @discardableResult
+  private func cancelSnapping() -> Bool {
+    guard isSnapping else { return false }
+    logger.debug("cancel snapping")
+
+    if Configuration.shared.resetWindowOnEscape {
+      let window = originalDraggedWindow ?? frontMostWindow
+      let originalWindowAXFrame = originalWindowAXFrame
+
+      endActiveWindowDrag()
+      reset()
+
+      if let window, let originalWindowAXFrame {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+          WindowManager.shared.restoreWindow(
+            window: window,
+            axFrame: originalWindowAXFrame
+          )
+        }
+      }
+      return true
+    }
+
+    mouseCoordinatesEnd = nil
+    mouseCoordinatesStart = nil
+    isSnapping = false
+    snapToCoordinates = nil
+
+    if overlayWindow != nil {
+      overlayWindow?.orderOut(nil)
+      overlayWindow = nil
+    }
+
+    return true
+  }
+
   private func leftMouseDown() {
     reset()
     activeScreen = ScreenManager.shared.getActiveScreen()
-    isDragging = true
+    isDragging = !Configuration.shared.requireWindowDragBeforeSnapping
+    captureWindowForCurrentDrag()
+
+    // Only async-refresh if the sync capture found nothing — do NOT overwrite a
+    // successful capture, because by the time this fires, focus may have shifted
+    // to a different app (e.g. the window that received the click becoming active).
+    if frontMostWindow == nil {
+      DispatchQueue.main.async { [weak self] in
+        guard let self, !self.isSnapping else { return }
+        self.captureWindowForCurrentDrag()
+      }
+    }
   }
 
   private func leftMouseUp() {
@@ -170,23 +230,43 @@ class EventMonitor {
 
   private func leftMouseDragged() {
     guard isSnapping else { return reset() }
-    let currentMouse = getMouseCoordinates()
+    var currentMouse = getMouseCoordinates()
+    let hoveredScreen = ScreenManager.shared.getScreen(at: currentMouse)
+
+    if let hoveredScreen,
+      let previousScreen = activeScreen,
+      previousScreen != hoveredScreen
+    {
+      logger.debug("active screen changed during drag")
+      overlayWindow?.orderOut(nil)
+      overlayWindow = nil
+    }
 
     // Only constrain the mouse if the user has enabled this setting
     if Configuration.shared.constrainMouse {
-      constrainMouseToActiveScreen(currentMouse)
+      currentMouse = constrainMouseForSnapping(
+        currentMouse,
+        hoveredScreen: hoveredScreen
+      )
     }
+
+    if hoveredScreen != nil {
+      activeScreen = ScreenManager.shared.getScreen(at: currentMouse) ?? hoveredScreen ?? activeScreen
+    }
+
+    guard let activeScreen else { return }
+
     mouseCoordinatesEnd = currentMouse
 
     snapToCoordinates = ScreenManager.shared.convertCoordinates(
       coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
-      screen: activeScreen!
+      screen: activeScreen
     )
     updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
     if Configuration.shared.moveOnActivate {
       WindowManager.shared.setWindow(
         window: self.frontMostWindow!,
-        screen: activeScreen!,
+        screen: activeScreen,
         frame: snapToCoordinates!
       )
     }
@@ -198,6 +278,8 @@ class EventMonitor {
     windowCoordinatesEnd = nil
     windowCoordinatesStart = nil
     frontMostWindow = nil
+    originalDraggedWindow = nil
+    originalWindowAXFrame = nil
     isDragging = false
     isSnapping = false
     activeScreen = nil
@@ -211,10 +293,26 @@ class EventMonitor {
   }
 
   private func startSnapping() {
+    if Configuration.shared.requireWindowDragBeforeSnapping {
+      updateDraggingState()
+      guard isDragging else { return }
+    }
+
     guard isDragging else { return }
     isSnapping = true
+    activeScreen = ScreenManager.shared.getActiveScreen() ?? activeScreen
     guard activeScreen != nil else { return }
-    frontMostWindow = WindowManager.shared.getFrontmostWindow()
+
+    if let snapWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
+      ?? WindowManager.shared.getFrontmostWindow()
+    {
+      if let capturedWindow = frontMostWindow,
+        !CFEqual(capturedWindow, snapWindow)
+      {
+        logger.warning("startSnapping: captured window differs from snap window, preserving original restore target")
+      }
+      frontMostWindow = snapWindow
+    }
     windowCoordinatesStart = getWindowCoordinates()
     mouseCoordinatesStart = getMouseCoordinates()
     mouseCoordinatesEnd = mouseCoordinatesStart
@@ -235,50 +333,98 @@ class EventMonitor {
     updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
   }
 
-  private func constrainMouseToActiveScreen(_ mousePosition: CGPoint) {
-    guard let activeScreen = activeScreen else { return }
+  private func captureWindowForCurrentDrag() {
+    let mouse = getMouseCoordinates()
+    let hitWindow = WindowManager.shared.getWindowAtPoint(mouse)
+    frontMostWindow = hitWindow ?? WindowManager.shared.getFrontmostWindow()
 
-    // Get the screen frame in global coordinates
-    let visibleFrame = activeScreen.visibleFrame
-
-    let margin: CGFloat = 5
-
-    let minX = visibleFrame.minX + margin
-    let maxX = visibleFrame.maxX - margin
-    let minY = visibleFrame.minY + margin
-    let maxY = visibleFrame.maxY - margin
-
-    // Constrain the mouse position to the screen bounds
-    var newMousePosition = mousePosition
-
-    var moved: Bool = false
-    if mousePosition.x > maxX {
-      newMousePosition.x = maxX
-      moved = true
+    if hitWindow == nil {
+      logger.warning("captureWindowForCurrentDrag: hit-test failed, falling back to frontmost window")
     }
-    if mousePosition.x < minX {
-      newMousePosition.x = minX
-      moved = true
+    windowCoordinatesStart = getWindowCoordinates()
+    if let frontMostWindow {
+      originalDraggedWindow = frontMostWindow
+      originalWindowAXFrame = WindowManager.shared.getAXWindowFrame(window: frontMostWindow)
+    } else {
+      originalDraggedWindow = nil
+      originalWindowAXFrame = nil
     }
-    if mousePosition.y > maxY {
-      newMousePosition.y = maxY
-      moved = true
-    }
-    if mousePosition.y < minY {
-      newMousePosition.y = minY
-      moved = true
+  }
+
+  private func updateDraggingState() {
+    guard Configuration.shared.requireWindowDragBeforeSnapping else {
+      isDragging = true
+      return
     }
 
-    if moved {
-      newMousePosition.y = activeScreen.frame.maxY - newMousePosition.y
-      CGWarpMouseCursorPosition(newMousePosition)
+    guard let frontMostWindow else {
+      isDragging = false
+      return
     }
+
+    guard let windowCoordinatesStart else {
+      isDragging = false
+      return
+    }
+
+    var currentWindowPosition = CGPoint.zero
+    var value: AnyObject?
+
+    guard AXUIElementCopyAttributeValue(frontMostWindow, kAXPositionAttribute as CFString, &value)
+      == .success,
+      let value,
+      AXValueGetType(value as! AXValue) == .cgPoint
+    else {
+      isDragging = false
+      return
+    }
+
+    AXValueGetValue(value as! AXValue, .cgPoint, &currentWindowPosition)
+
+    let deltaX = abs(currentWindowPosition.x - windowCoordinatesStart.x)
+    let deltaY = abs(currentWindowPosition.y - windowCoordinatesStart.y)
+    isDragging = deltaX > Self.dragDetectionThreshold || deltaY > Self.dragDetectionThreshold
+  }
+
+  private func endActiveWindowDrag() {
+    let cocoaMousePosition = getMouseCoordinates()
+    let axMousePosition = WindowManager.shared.appKitPointToAXPoint(cocoaMousePosition)
+
+    guard let event = CGEvent(
+      mouseEventSource: nil,
+      mouseType: .leftMouseUp,
+      mouseCursorPosition: axMousePosition,
+      mouseButton: .left
+    ) else {
+      return
+    }
+
+    event.post(tap: .cghidEventTap)
+  }
+
+  private func constrainMouseForSnapping(_ mousePosition: CGPoint, hoveredScreen: NSScreen?) -> CGPoint {
+    // If the pointer is on any screen, do not interfere; this preserves cross-monitor dragging.
+    if hoveredScreen != nil {
+      return mousePosition
+    }
+
+    guard let activeScreen else { return mousePosition }
+
+    let frame = activeScreen.visibleFrame
+    let margin: CGFloat = 3
+    let clamped = CGPoint(
+      x: min(max(mousePosition.x, frame.minX + margin), frame.maxX - margin),
+      y: min(max(mousePosition.y, frame.minY + margin), frame.maxY - margin)
+    )
+
+    // Use logical clamping only; physical cursor warping causes monitor hops on some layouts.
+    return clamped
   }
 
   private func updateOverlayPreview(snapToCoordinates: CGRect) {
     guard isSnapping, let activeScreen = activeScreen,
-      let mouseStart = mouseCoordinatesStart,
-      let mouseEnd = mouseCoordinatesEnd
+      mouseCoordinatesStart != nil,
+      mouseCoordinatesEnd != nil
     else {
       return
     }
