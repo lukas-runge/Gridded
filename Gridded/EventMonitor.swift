@@ -25,12 +25,6 @@ class EventMonitor {
 
   private let logger = Logger(label: "EventMonitor")
 
-  private func screenDebugDescription(_ screen: NSScreen?) -> String {
-    guard let screen else { return "nil" }
-    let frame = screen.frame
-    return "\(screen.localizedName) frame=(\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height)))"
-  }
-
   public var isMonitoring: Bool { eventTap != nil }
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
@@ -167,25 +161,11 @@ class EventMonitor {
       let window = originalDraggedWindow ?? frontMostWindow
       let originalWindowAXFrame = originalWindowAXFrame
 
-      if let window {
-        logger.notice("cancelSnapping: window=\(WindowManager.shared.windowDebugDescription(window))")
-      } else {
-        logger.warning("cancelSnapping: no frontMostWindow captured")
-      }
-      if let originalWindowAXFrame {
-        logger.notice(
-          "cancelSnapping: savedAXFrame pos=(\(originalWindowAXFrame.position.x),\(originalWindowAXFrame.position.y)) size=(\(originalWindowAXFrame.size.width),\(originalWindowAXFrame.size.height)) activeScreen=\(screenDebugDescription(activeScreen))"
-        )
-      } else {
-        logger.warning("cancelSnapping: originalWindowAXFrame is nil")
-      }
-
       endActiveWindowDrag()
       reset()
 
       if let window, let originalWindowAXFrame {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-          self.logger.notice("cancelSnapping: restoring saved AX frame after delay")
           WindowManager.shared.restoreWindow(
             window: window,
             axFrame: originalWindowAXFrame
@@ -211,7 +191,6 @@ class EventMonitor {
   private func leftMouseDown() {
     reset()
     activeScreen = ScreenManager.shared.getActiveScreen()
-    logger.notice("leftMouseDown: mouse=(\(getMouseCoordinates().x),\(getMouseCoordinates().y)) activeScreen=\(screenDebugDescription(activeScreen))")
     isDragging = !Configuration.shared.requireWindowDragBeforeSnapping
     captureWindowForCurrentDrag()
 
@@ -324,23 +303,15 @@ class EventMonitor {
     activeScreen = ScreenManager.shared.getActiveScreen() ?? activeScreen
     guard activeScreen != nil else { return }
 
-    let mouse = getMouseCoordinates()
-    logger.notice("startSnapping: mouse=(\(mouse.x),\(mouse.y)) activeScreen=\(screenDebugDescription(activeScreen))")
-
     if let snapWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
       ?? WindowManager.shared.getFrontmostWindow()
     {
       if let capturedWindow = frontMostWindow,
         !CFEqual(capturedWindow, snapWindow)
       {
-        logger.warning(
-          "startSnapping: captured window differs from snap window, preserving original restore target. captured=\(WindowManager.shared.windowDebugDescription(capturedWindow)) snap=\(WindowManager.shared.windowDebugDescription(snapWindow))"
-        )
+        logger.warning("startSnapping: captured window differs from snap window, preserving original restore target")
       }
-      logger.notice("startSnapping: using window=\(WindowManager.shared.windowDebugDescription(snapWindow))")
       frontMostWindow = snapWindow
-    } else {
-      logger.warning("startSnapping: failed to resolve a window")
     }
     windowCoordinatesStart = getWindowCoordinates()
     mouseCoordinatesStart = getMouseCoordinates()
@@ -367,22 +338,16 @@ class EventMonitor {
     let hitWindow = WindowManager.shared.getWindowAtPoint(mouse)
     frontMostWindow = hitWindow ?? WindowManager.shared.getFrontmostWindow()
 
-    if let hitWindow {
-      logger.notice("captureWindowForCurrentDrag: hit window=\(WindowManager.shared.windowDebugDescription(hitWindow))")
-    } else {
-      logger.warning("captureWindowForCurrentDrag: hit-test failed at mouse=(\(mouse.x),\(mouse.y)), falling back to frontmost window")
+    if hitWindow == nil {
+      logger.warning("captureWindowForCurrentDrag: hit-test failed, falling back to frontmost window")
     }
     windowCoordinatesStart = getWindowCoordinates()
     if let frontMostWindow {
       originalDraggedWindow = frontMostWindow
       originalWindowAXFrame = WindowManager.shared.getAXWindowFrame(window: frontMostWindow)
-      logger.notice(
-        "captureWindowForCurrentDrag: captured window=\(WindowManager.shared.windowDebugDescription(frontMostWindow)) savedAXFrame=\(String(describing: originalWindowAXFrame))"
-      )
     } else {
       originalDraggedWindow = nil
       originalWindowAXFrame = nil
-      logger.warning("captureWindowForCurrentDrag: no window captured")
     }
   }
 
@@ -424,9 +389,6 @@ class EventMonitor {
   private func endActiveWindowDrag() {
     let cocoaMousePosition = getMouseCoordinates()
     let axMousePosition = WindowManager.shared.appKitPointToAXPoint(cocoaMousePosition)
-    logger.notice(
-      "endActiveWindowDrag: posting leftMouseUp cocoa=(\(cocoaMousePosition.x),\(cocoaMousePosition.y)) ax=(\(axMousePosition.x),\(axMousePosition.y))"
-    )
 
     guard let event = CGEvent(
       mouseEventSource: nil,
