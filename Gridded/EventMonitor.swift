@@ -21,7 +21,7 @@ class EventMonitor {
   static let shared = EventMonitor()
 
   private static let escapeKeyCode: Int64 = 53
-  private static let dragDetectionThreshold: CGFloat = 2
+  private static let dragDetectionThreshold: CGFloat = 0
 
   private let logger = Logger(label: "EventMonitor")
 
@@ -128,6 +128,8 @@ class EventMonitor {
       if isSnapping {
         logger.debug("left mouse dragged")
         leftMouseDragged()
+      } else {
+        updateDraggingState()
       }
     case .rightMouseDown:
       logger.debug("right mouse down")
@@ -193,6 +195,7 @@ class EventMonitor {
     activeScreen = ScreenManager.shared.getActiveScreen()
     logger.debug("leftMouseDown: mouse=(\(mouse.x), \(mouse.y)) screen=\(activeScreen?.localizedName ?? "nil")")
     isDragging = !Configuration.shared.requireWindowDragBeforeSnapping
+    logger.debug("leftMouseDown: isDragging set to \(isDragging) (requireDragFirst=\(Configuration.shared.requireWindowDragBeforeSnapping))")
     captureWindowForCurrentDrag()
 
     // Only async-refresh if the sync capture found nothing — do NOT overwrite a
@@ -237,11 +240,6 @@ class EventMonitor {
   }
 
   private func leftMouseDragged() {
-    if !isSnapping {
-      updateDraggingState()
-      return
-    }
-
     guard isSnapping else { return reset() }
     var currentMouse = getMouseCoordinates()
     let hoveredScreen = ScreenManager.shared.getScreen(at: currentMouse)
@@ -305,15 +303,27 @@ class EventMonitor {
   }
 
   private func startSnapping() {
+    logger.debug("startSnapping: isDragging=\(isDragging) requireDragFirst=\(Configuration.shared.requireWindowDragBeforeSnapping) frontMostWindow=\(frontMostWindow != nil ? "set" : "nil")")
+
     if Configuration.shared.requireWindowDragBeforeSnapping {
       updateDraggingState()
-      guard isDragging else { return }
+      logger.debug("startSnapping: after updateDraggingState isDragging=\(isDragging)")
+      guard isDragging else {
+        logger.warning("startSnapping: ABORTED — requireWindowDragBeforeSnapping is on but window has not moved enough yet")
+        return
+      }
     }
 
-    guard isDragging else { return }
+    guard isDragging else {
+      logger.warning("startSnapping: ABORTED — isDragging=false (was requireWindowDragBeforeSnapping off but mouseDown not received yet?)")
+      return
+    }
     isSnapping = true
     activeScreen = ScreenManager.shared.getActiveScreen() ?? activeScreen
-    guard activeScreen != nil else { return }
+    guard activeScreen != nil else {
+      logger.warning("startSnapping: ABORTED — no active screen")
+      return
+    }
 
     let mouse = getMouseCoordinates()
     let hitWindow = WindowManager.shared.getWindowAtPoint(mouse)
@@ -397,11 +407,13 @@ class EventMonitor {
     }
 
     guard let frontMostWindow else {
+      logger.warning("updateDraggingState: no frontMostWindow → isDragging=false")
       isDragging = false
       return
     }
 
     guard let windowCoordinatesStart else {
+      logger.warning("updateDraggingState: no windowCoordinatesStart → isDragging=false")
       isDragging = false
       return
     }
@@ -414,6 +426,7 @@ class EventMonitor {
       let value,
       AXValueGetType(value as! AXValue) == .cgPoint
     else {
+      logger.warning("updateDraggingState: failed to read window position → isDragging=false")
       isDragging = false
       return
     }
@@ -422,7 +435,9 @@ class EventMonitor {
 
     let deltaX = abs(currentWindowPosition.x - windowCoordinatesStart.x)
     let deltaY = abs(currentWindowPosition.y - windowCoordinatesStart.y)
-    isDragging = deltaX > Self.dragDetectionThreshold || deltaY > Self.dragDetectionThreshold
+    let threshold = Self.dragDetectionThreshold
+    isDragging = deltaX > threshold || deltaY > threshold
+    logger.debug("updateDraggingState: start=\(windowCoordinatesStart) current=\(currentWindowPosition) delta=(\(deltaX), \(deltaY)) threshold=\(threshold) → isDragging=\(isDragging)")
   }
 
   private func endActiveWindowDrag() {
