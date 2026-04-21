@@ -16,6 +16,11 @@ struct SnapToCoordinates: Hashable {
   var end: CGPoint
 }
 
+struct AXWindowFrame {
+  var position: CGPoint
+  var size: CGSize
+}
+
 private typealias CGSConnectionID = UInt32
 @_silgen_name("CGSMainConnectionID") private func CGSMainConnectionID() -> CGSConnectionID
 @_silgen_name("CGSDisableUpdate") private func CGSDisableUpdate(_ connection: CGSConnectionID)
@@ -33,6 +38,27 @@ private typealias CGSConnectionID = UInt32
       ?? 0
   }
 
+  public func appKitPointToAXPoint(_ point: CGPoint) -> CGPoint {
+    CGPoint(x: point.x, y: primaryScreenHeight() - point.y)
+  }
+
+  public func windowDebugDescription(_ window: AXUIElement) -> String {
+    var pid: pid_t = 0
+    AXUIElementGetPid(window, &pid)
+    let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid:\(pid)"
+
+    var titleRef: AnyObject?
+    let title: String
+    if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
+       let titleValue = titleRef as? String {
+      title = titleValue.isEmpty ? "<untitled>" : titleValue
+    } else {
+      title = "<no title>"
+    }
+
+    return "\(appName) - \"\(title)\""
+  }
+
   // Returns the frontmost (active) window of the currently focused application.
   public func getFrontmostWindow() -> AXUIElement? {
     guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
@@ -47,11 +73,12 @@ private typealias CGSConnectionID = UInt32
       appElement, kAXFocusedWindowAttribute as CFString, &window)
 
     if result == .success, let windowElement = window {
-      logger.debug("successfully got frontmost window for app: \(frontmostApp.localizedName ?? "unknown")")
-      return (windowElement as! AXUIElement)
+      let resolvedWindow = windowElement as! AXUIElement
+      logger.notice("getFrontmostWindow: \(self.windowDebugDescription(resolvedWindow))")
+      return resolvedWindow
     }
 
-    logger.notice("failed to get frontmost window with error: \(result.rawValue)")
+    logger.notice("getFrontmostWindow: failed for app \(frontmostApp.localizedName ?? "unknown"), error=\(result.rawValue)")
     return nil
   }
 
@@ -61,25 +88,43 @@ private typealias CGSConnectionID = UInt32
 
     // NSEvent.mouseLocation uses AppKit coords (origin bottom-left, y up).
     // AXUIElementCopyElementAtPosition uses CG/AX coords (origin top-left, y down).
-    let cgY = primaryScreenHeight() - point.y
+    let axPoint = appKitPointToAXPoint(point)
     let hitResult = AXUIElementCopyElementAtPosition(
       systemWideElement,
-      Float(point.x),
-      Float(cgY),
+      Float(axPoint.x),
+      Float(axPoint.y),
       &hitElementRef
     )
+
+    logger.notice("getWindowAtPoint: AppKit=(\(point.x),\(point.y)) AX=(\(axPoint.x),\(axPoint.y)) result=\(hitResult.rawValue)")
 
     if hitResult == .success,
       let hitElementRef,
       let window = resolveWindowElement(from: hitElementRef)
     {
+      logger.notice("getWindowAtPoint: resolved \(self.windowDebugDescription(window))")
       return window
     }
+
+    logger.notice("getWindowAtPoint: no window resolved")
 
     return nil
   }
 
   public func getWindowFrame(window: AXUIElement) -> CGRect? {
+    guard let axFrame = getAXWindowFrame(window: window) else { return nil }
+
+    let primaryHeight = primaryScreenHeight()
+
+    return CGRect(
+      x: axFrame.position.x,
+      y: primaryHeight - axFrame.position.y - axFrame.size.height,
+      width: axFrame.size.width,
+      height: axFrame.size.height
+    )
+  }
+
+  public func getAXWindowFrame(window: AXUIElement) -> AXWindowFrame? {
     var pid: pid_t = 0
     AXUIElementGetPid(window, &pid)
 
@@ -119,14 +164,9 @@ private typealias CGSConnectionID = UInt32
       AXValueGetValue(sizeValueRef as! AXValue, .cgSize, &size)
     }
 
-    let primaryHeight = primaryScreenHeight()
-
-    return CGRect(
-      x: position.x,
-      y: primaryHeight - position.y - size.height,
-      width: size.width,
-      height: size.height
-    )
+    let axFrame = AXWindowFrame(position: position, size: size)
+    logger.notice("getAXWindowFrame: \(self.windowDebugDescription(window)) -> pos=(\(position.x),\(position.y)) size=(\(size.width),\(size.height))")
+    return axFrame
   }
 
   // Moves and resizes the given window to a new CGRect.
@@ -158,6 +198,18 @@ private typealias CGSConnectionID = UInt32
     let targetSize = CGSize(width: frame.size.width, height: frame.size.height)
 
     applyWindowFrame(window: window, targetPosition: targetPosition, targetSize: targetSize, attempt: 1)
+  }
+
+  public func restoreWindow(window: AXUIElement, axFrame: AXWindowFrame) {
+    logger.notice(
+      "restoreWindow: \(self.windowDebugDescription(window)) -> pos=(\(axFrame.position.x),\(axFrame.position.y)) size=(\(axFrame.size.width),\(axFrame.size.height))"
+    )
+    applyWindowFrame(
+      window: window,
+      targetPosition: axFrame.position,
+      targetSize: axFrame.size,
+      attempt: 1
+    )
   }
 
   private func applyWindowFrame(window: AXUIElement, targetPosition: CGPoint, targetSize: CGSize, attempt: Int) {
