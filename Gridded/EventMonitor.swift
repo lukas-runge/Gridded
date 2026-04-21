@@ -191,11 +191,8 @@ class EventMonitor {
 
   private func leftMouseDown() {
     reset()
-    let mouse = getMouseCoordinates()
     activeScreen = ScreenManager.shared.getActiveScreen()
-    logger.debug("leftMouseDown: mouse=(\(mouse.x), \(mouse.y)) screen=\(activeScreen?.localizedName ?? "nil")")
     isDragging = !Configuration.shared.requireWindowDragBeforeSnapping
-    logger.debug("leftMouseDown: isDragging set to \(isDragging) (requireDragFirst=\(Configuration.shared.requireWindowDragBeforeSnapping))")
     captureWindowForCurrentDrag()
 
     // Only async-refresh if the sync capture found nothing — do NOT overwrite a
@@ -203,16 +200,9 @@ class EventMonitor {
     // to a different app (e.g. the window that received the click becoming active).
     if frontMostWindow == nil {
       DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        guard !self.isSnapping else {
-          self.logger.debug("leftMouseDown async refresh: skipped (already snapping)")
-          return
-        }
-        self.logger.debug("leftMouseDown async refresh: no window captured yet, re-trying")
+        guard let self, !self.isSnapping else { return }
         self.captureWindowForCurrentDrag()
       }
-    } else {
-      logger.debug("leftMouseDown async refresh: skipped (window already captured)")
     }
   }
 
@@ -303,54 +293,26 @@ class EventMonitor {
   }
 
   private func startSnapping() {
-    logger.debug("startSnapping: isDragging=\(isDragging) requireDragFirst=\(Configuration.shared.requireWindowDragBeforeSnapping) frontMostWindow=\(frontMostWindow != nil ? "set" : "nil")")
-
     if Configuration.shared.requireWindowDragBeforeSnapping {
       updateDraggingState()
-      logger.debug("startSnapping: after updateDraggingState isDragging=\(isDragging)")
-      guard isDragging else {
-        logger.warning("startSnapping: ABORTED — requireWindowDragBeforeSnapping is on but window has not moved enough yet")
-        return
-      }
+      guard isDragging else { return }
     }
 
-    guard isDragging else {
-      logger.warning("startSnapping: ABORTED — isDragging=false (was requireWindowDragBeforeSnapping off but mouseDown not received yet?)")
-      return
-    }
+    guard isDragging else { return }
     isSnapping = true
     activeScreen = ScreenManager.shared.getActiveScreen() ?? activeScreen
-    guard activeScreen != nil else {
-      logger.warning("startSnapping: ABORTED — no active screen")
-      return
-    }
+    guard activeScreen != nil else { return }
 
-    let mouse = getMouseCoordinates()
-    let hitWindow = WindowManager.shared.getWindowAtPoint(mouse)
-    let snapWindow = hitWindow ?? WindowManager.shared.getFrontmostWindow()
-
-    logger.debug("startSnapping: mouse=(\(mouse.x), \(mouse.y))")
-    if let hitWindow {
-      logger.debug("startSnapping: hit-test window → \(WindowManager.shared.windowDebugDescription(hitWindow))")
-    } else {
-      logger.warning("startSnapping: hit-test FAILED at snap time")
-    }
-
-    if let snapWindow {
-      if let capturedWindow = frontMostWindow {
-        let same = CFEqual(capturedWindow, snapWindow)
-        logger.debug("startSnapping: captured=\(WindowManager.shared.windowDebugDescription(capturedWindow)), snapWindow=\(WindowManager.shared.windowDebugDescription(snapWindow)), same=\(same)")
-        if !same {
-          logger.warning("startSnapping: MISMATCH — captured window differs from snap window → clearing originalWindowFrame")
-          // We captured a different window at grab time; disable restore to avoid jumping a wrong window.
-          originalWindowFrame = nil
-        }
-      } else {
-        logger.warning("startSnapping: no captured window at snap time, using snap window → \(WindowManager.shared.windowDebugDescription(snapWindow))")
+    if let snapWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
+      ?? WindowManager.shared.getFrontmostWindow()
+    {
+      if let capturedWindow = frontMostWindow,
+        !CFEqual(capturedWindow, snapWindow)
+      {
+        // We captured a different window at grab time; disable restore to avoid jumping a wrong window.
+        originalWindowFrame = nil
       }
       frontMostWindow = snapWindow
-    } else {
-      logger.warning("startSnapping: no window found at snap time (hit-test and frontmost both failed)")
     }
     windowCoordinatesStart = getWindowCoordinates()
     mouseCoordinatesStart = getMouseCoordinates()
@@ -373,30 +335,13 @@ class EventMonitor {
   }
 
   private func captureWindowForCurrentDrag() {
-    let mouse = getMouseCoordinates()
-    logger.debug("captureWindowForCurrentDrag: mouse=(\(mouse.x), \(mouse.y))")
-
-    let hitWindow = WindowManager.shared.getWindowAtPoint(mouse)
-    if let hitWindow {
-      logger.debug("captureWindowForCurrentDrag: hit-test found → \(WindowManager.shared.windowDebugDescription(hitWindow))")
-      frontMostWindow = hitWindow
-    } else {
-      let frontmost = WindowManager.shared.getFrontmostWindow()
-      if let frontmost {
-        logger.warning("captureWindowForCurrentDrag: hit-test FAILED — falling back to frontmost window → \(WindowManager.shared.windowDebugDescription(frontmost))")
-      } else {
-        logger.warning("captureWindowForCurrentDrag: both hit-test and frontmost FAILED — no window captured")
-      }
-      frontMostWindow = frontmost
-    }
-
+    frontMostWindow = WindowManager.shared.getWindowAtPoint(getMouseCoordinates())
+      ?? WindowManager.shared.getFrontmostWindow()
     windowCoordinatesStart = getWindowCoordinates()
     if let frontMostWindow {
       originalWindowFrame = WindowManager.shared.getWindowFrame(window: frontMostWindow)
-      logger.debug("captureWindowForCurrentDrag: captured window originalFrame=\(String(describing: originalWindowFrame))")
     } else {
       originalWindowFrame = nil
-      logger.warning("captureWindowForCurrentDrag: no window captured, originalWindowFrame=nil")
     }
   }
 
@@ -407,13 +352,11 @@ class EventMonitor {
     }
 
     guard let frontMostWindow else {
-      logger.warning("updateDraggingState: no frontMostWindow → isDragging=false")
       isDragging = false
       return
     }
 
     guard let windowCoordinatesStart else {
-      logger.warning("updateDraggingState: no windowCoordinatesStart → isDragging=false")
       isDragging = false
       return
     }
@@ -426,7 +369,6 @@ class EventMonitor {
       let value,
       AXValueGetType(value as! AXValue) == .cgPoint
     else {
-      logger.warning("updateDraggingState: failed to read window position → isDragging=false")
       isDragging = false
       return
     }
@@ -435,9 +377,7 @@ class EventMonitor {
 
     let deltaX = abs(currentWindowPosition.x - windowCoordinatesStart.x)
     let deltaY = abs(currentWindowPosition.y - windowCoordinatesStart.y)
-    let threshold = Self.dragDetectionThreshold
-    isDragging = deltaX > threshold || deltaY > threshold
-    logger.debug("updateDraggingState: start=\(windowCoordinatesStart) current=\(currentWindowPosition) delta=(\(deltaX), \(deltaY)) threshold=\(threshold) → isDragging=\(isDragging)")
+    isDragging = deltaX > Self.dragDetectionThreshold || deltaY > Self.dragDetectionThreshold
   }
 
   private func endActiveWindowDrag() {

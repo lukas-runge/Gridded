@@ -33,37 +33,10 @@ private typealias CGSConnectionID = UInt32
       ?? 0
   }
 
-  // Returns a debug string for a window: "AppName – WindowTitle @ (x,y,w,h)"
-  public func windowDebugDescription(_ window: AXUIElement) -> String {
-    var pid: pid_t = 0
-    AXUIElementGetPid(window, &pid)
-    let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid:\(pid)"
-
-    var titleRef: AnyObject?
-    let title: String
-    if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
-       let t = titleRef as? String {
-      title = t.isEmpty ? "<untitled>" : t
-    } else {
-      title = "<no title>"
-    }
-
-    var posRef: AnyObject?
-    var sizeRef: AnyObject?
-    var pos = CGPoint.zero
-    var size = CGSize.zero
-    if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef) == .success,
-       let v = posRef { AXValueGetValue(v as! AXValue, .cgPoint, &pos) }
-    if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success,
-       let v = sizeRef { AXValueGetValue(v as! AXValue, .cgSize, &size) }
-
-    return "\(appName) – \"\(title)\" @ (\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))×\(Int(size.height)))"
-  }
-
   // Returns the frontmost (active) window of the currently focused application.
   public func getFrontmostWindow() -> AXUIElement? {
     guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-      logger.notice("getFrontmostWindow: failed to get frontmost application")
+      logger.notice("failed to get frontmost application")
       return nil
     }
 
@@ -74,12 +47,11 @@ private typealias CGSConnectionID = UInt32
       appElement, kAXFocusedWindowAttribute as CFString, &window)
 
     if result == .success, let windowElement = window {
-      let w = windowElement as! AXUIElement
-      logger.debug("getFrontmostWindow: \(windowDebugDescription(w))")
-      return w
+      logger.debug("successfully got frontmost window for app: \(frontmostApp.localizedName ?? "unknown")")
+      return (windowElement as! AXUIElement)
     }
 
-    logger.notice("getFrontmostWindow: failed for app \(frontmostApp.localizedName ?? "unknown"), error=\(result.rawValue)")
+    logger.notice("failed to get frontmost window with error: \(result.rawValue)")
     return nil
   }
 
@@ -97,26 +69,13 @@ private typealias CGSConnectionID = UInt32
       &hitElementRef
     )
 
-    logger.debug("getWindowAtPoint: AppKit(\(point.x), \(point.y)) → CG(\(point.x), \(cgY)), AX result=\(hitResult.rawValue)")
-
-    guard hitResult == .success, let hitElementRef else {
-      logger.debug("getWindowAtPoint: hit-test failed (result=\(hitResult.rawValue)) → returning nil")
-      return nil
-    }
-
-    var hitRole = "<unknown>"
-    var roleRef: AnyObject?
-    if AXUIElementCopyAttributeValue(hitElementRef, kAXRoleAttribute as CFString, &roleRef) == .success {
-      hitRole = (roleRef as? String) ?? "<unknown>"
-    }
-    logger.debug("getWindowAtPoint: hit element role=\(hitRole)")
-
-    if let window = resolveWindowElement(from: hitElementRef) {
-      logger.debug("getWindowAtPoint: resolved window → \(windowDebugDescription(window))")
+    if hitResult == .success,
+      let hitElementRef,
+      let window = resolveWindowElement(from: hitElementRef)
+    {
       return window
     }
 
-    logger.debug("getWindowAtPoint: could not resolve AXWindow from hit element → returning nil")
     return nil
   }
 
