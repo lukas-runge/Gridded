@@ -25,9 +25,13 @@ class EventMonitor {
 
   private let logger = Logger(label: "EventMonitor")
 
-  public var isMonitoring: Bool { eventTap != nil }
+  public var isMonitoring: Bool {
+    guard let eventTap else { return false }
+    return CGEvent.tapIsEnabled(tap: eventTap)
+  }
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
+  private var watchdogTimer: Timer?
   private var isSpacePressed = false
   private var dragCheckTimer: Timer?
   private var overlayWindow: OverlayWindow?
@@ -50,6 +54,10 @@ class EventMonitor {
    * Start event monitor, should run when app is started.
    */
   func start() {
+    // Watchdog runs even when start() bails (missing permission, tap creation
+    // failure) so the monitor can come up later without user interaction.
+    startWatchdog()
+
     guard eventTap == nil else { return }
 
     let options: NSDictionary = [
@@ -88,9 +96,10 @@ class EventMonitor {
       runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
       CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
       CGEvent.tapEnable(tap: eventTap, enable: true)
+      logger.info("event monitor started")
+    } else {
+      logger.error("failed to create event tap, watchdog will retry")
     }
-
-    logger.info("event monitor started")
   }
 
   /**
@@ -112,6 +121,38 @@ class EventMonitor {
     stop()
     reset()
     start()
+  }
+
+  // MARK: Watchdog
+
+  private func startWatchdog() {
+    guard watchdogTimer == nil else { return }
+    let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+      self?.watchdogTick()
+    }
+    // .common so the watchdog also fires during menu tracking and modal panels.
+    RunLoop.main.add(timer, forMode: .common)
+    watchdogTimer = timer
+  }
+
+  private func watchdogTick() {
+    if let tap = eventTap, !CFMachPortIsValid(tap) {
+      logger.warning("watchdog: event tap port invalidated, tearing down")
+      stop()
+    }
+
+    if let tap = eventTap {
+      if !CGEvent.tapIsEnabled(tap: tap) {
+        logger.warning("watchdog: event tap disabled, re-enabling")
+        CGEvent.tapEnable(tap: tap, enable: true)
+      }
+    } else if AXIsProcessTrusted() {
+      // Covers: permission granted after launch, tap creation failure,
+      // teardown after trust loss. Guarded by trust check so the permission
+      // alert in start() never spams from the watchdog.
+      logger.info("watchdog: no active event tap, starting")
+      start()
+    }
   }
 
   // MARK: Event handlers
@@ -478,7 +519,13 @@ class EventMonitor {
 
     var value: AnyObject?
     guard AXIsProcessTrusted() else {
-      restart()
+      // Never restart synchronously from here: this runs inside the tap
+      // callback, and stop() would invalidate the mach port whose callback
+      // is currently executing.
+      logger.warning("accessibility trust lost, scheduling monitor restart")
+      DispatchQueue.main.async { [weak self] in
+        self?.restart()
+      }
       return nil
     }
 
