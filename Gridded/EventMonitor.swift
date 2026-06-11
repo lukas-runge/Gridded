@@ -6,10 +6,16 @@
 //
 
 import AppKit
+import Carbon
 import Cocoa
 import CoreGraphics
 import Foundation
 import Logging
+
+extension Notification.Name {
+  static let griddedSecureInputStateDidChange = Notification.Name(
+    "GriddedSecureInputStateDidChange")
+}
 
 //enum DockPosition {
 //  case bottom
@@ -32,6 +38,7 @@ class EventMonitor {
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
   private var watchdogTimer: Timer?
+  public private(set) var secureInputActive = false
   private var isSpacePressed = false
   private var dragCheckTimer: Timer?
   private var overlayWindow: OverlayWindow?
@@ -142,6 +149,8 @@ class EventMonitor {
   }
 
   private func watchdogTick() {
+    updateSecureInputState()
+
     if let tap = eventTap, !CFMachPortIsValid(tap) {
       logger.warning("watchdog: event tap port invalidated, tearing down")
       stop()
@@ -159,6 +168,38 @@ class EventMonitor {
       logger.info("watchdog: no active event tap, starting")
       start()
     }
+  }
+
+  /// While any app holds Secure Event Input (password fields, Terminal's
+  /// "Secure Keyboard Entry", password managers), the WindowServer withholds
+  /// keyboard events from event taps — mouse events keep flowing. That makes
+  /// keyboard activation silently dead, so we surface the state to the user.
+  private func updateSecureInputState() {
+    let active = IsSecureEventInputEnabled()
+    guard active != secureInputActive else { return }
+    secureInputActive = active
+
+    if active {
+      let holder = secureInputHolderDescription().map { " by \($0)" } ?? ""
+      logger.warning(
+        "secure event input enabled\(holder) — keyboard activation is blocked until it is released"
+      )
+    } else {
+      logger.info("secure event input released")
+    }
+    NotificationCenter.default.post(
+      name: .griddedSecureInputStateDidChange,
+      object: nil,
+      userInfo: ["active": active]
+    )
+  }
+
+  private func secureInputHolderDescription() -> String? {
+    guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+      let pid = session["kCGSSessionSecureInputPID"] as? pid_t,
+      let app = NSRunningApplication(processIdentifier: pid)
+    else { return nil }
+    return "\(app.localizedName ?? "unknown app") (pid \(pid))"
   }
 
   // MARK: Event handlers

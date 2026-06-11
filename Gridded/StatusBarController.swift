@@ -21,6 +21,15 @@ final class StatusBarController {
       button.image = NSImage(systemSymbolName: "grid", accessibilityDescription: "Gridded")
     }
 
+    NotificationCenter.default.addObserver(
+      forName: .griddedSecureInputStateDidChange,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      let active = notification.userInfo?["active"] as? Bool ?? false
+      self?.updateSecureInputIndicator(active: active)
+    }
+
     let menu = NSMenu(title: "Gridded")
     menu.addItem(
       NSMenuItem(
@@ -73,6 +82,24 @@ final class StatusBarController {
 
   @objc private func restartEventMonitor() {
     EventMonitor.shared.restart()
+  }
+
+  private func updateSecureInputIndicator(active: Bool) {
+    guard let button = statusItem.button else { return }
+    if active {
+      button.image =
+        NSImage(
+          systemSymbolName: "keyboard.slash",
+          accessibilityDescription: "Gridded — keyboard activation blocked")
+        ?? NSImage(
+          systemSymbolName: "exclamationmark.triangle",
+          accessibilityDescription: "Gridded — keyboard activation blocked")
+      button.toolTip =
+        "Secure Input is active in another app — keyboard activation (e.g. Space) is blocked until it is released."
+    } else {
+      button.image = NSImage(systemSymbolName: "grid", accessibilityDescription: "Gridded")
+      button.toolTip = nil
+    }
   }
 
   @objc private func openAbout() {
