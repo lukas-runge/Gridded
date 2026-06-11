@@ -274,9 +274,10 @@ class EventMonitor {
       // event-tap callback returns so the mouseUp propagates to the app first.
       // The target app's drag handler needs time to process the mouseUp and
       // exit its drag state; applyWindowFrame retries if the app reverts changes.
-      let window = self.frontMostWindow!
-      let screen = activeScreen!
-      let frame = snapToCoordinates!
+      guard let window = frontMostWindow,
+        let screen = activeScreen,
+        let frame = snapToCoordinates
+      else { return reset() }
       reset()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
         WindowManager.shared.setWindow(window: window, screen: screen, frame: frame)
@@ -316,16 +317,18 @@ class EventMonitor {
 
     mouseCoordinatesEnd = currentMouse
 
-    snapToCoordinates = ScreenManager.shared.convertCoordinates(
-      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
+    guard let mouseStart = mouseCoordinatesStart else { return }
+    let snapTo = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseStart, end: currentMouse),
       screen: activeScreen
     )
-    updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
-    if Configuration.shared.moveOnActivate {
+    snapToCoordinates = snapTo
+    updateOverlayPreview(snapToCoordinates: snapTo)
+    if Configuration.shared.moveOnActivate, let frontMostWindow {
       WindowManager.shared.setWindow(
-        window: self.frontMostWindow!,
+        window: frontMostWindow,
         screen: activeScreen,
-        frame: snapToCoordinates!
+        frame: snapTo
       )
     }
   }
@@ -371,24 +374,33 @@ class EventMonitor {
       }
       frontMostWindow = snapWindow
     }
-    windowCoordinatesStart = getWindowCoordinates()
-    mouseCoordinatesStart = getMouseCoordinates()
-    mouseCoordinatesEnd = mouseCoordinatesStart
 
-    snapToCoordinates = ScreenManager.shared.convertCoordinates(
-      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesStart!),
-      screen: activeScreen!
+    guard let window = frontMostWindow, let screen = activeScreen else {
+      logger.warning("startSnapping: no window resolved, aborting snap")
+      isSnapping = false
+      return
+    }
+
+    windowCoordinatesStart = getWindowCoordinates()
+    let mouseStart = getMouseCoordinates()
+    mouseCoordinatesStart = mouseStart
+    mouseCoordinatesEnd = mouseStart
+
+    let snapTo = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseStart, end: mouseStart),
+      screen: screen
     )
+    snapToCoordinates = snapTo
 
     // Show initial overlay preview
     if Configuration.shared.moveOnActivate {
       WindowManager.shared.setWindow(
-        window: self.frontMostWindow!,
-        screen: activeScreen!,
-        frame: snapToCoordinates!
+        window: window,
+        screen: screen,
+        frame: snapTo
       )
     }
-    updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
+    updateOverlayPreview(snapToCoordinates: snapTo)
   }
 
   private func captureWindowForCurrentDrag() {
