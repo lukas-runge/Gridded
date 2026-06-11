@@ -70,6 +70,12 @@ class EventMonitor {
       return
     }
 
+    // Cap synchronous AX round-trips process-wide (set via the system-wide
+    // element). The default of several seconds lets a single busy app stall
+    // the tap callback long enough for macOS to disable the tap by timeout.
+    // Slow window moves are still covered by applyWindowFrame's retry loop.
+    AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
+
     let eventMask =
       (1 << CGEventType.leftMouseDown.rawValue)
       | (1 << CGEventType.leftMouseDragged.rawValue)
