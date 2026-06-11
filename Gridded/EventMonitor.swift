@@ -17,12 +17,6 @@ extension Notification.Name {
     "GriddedSecureInputStateDidChange")
 }
 
-//enum DockPosition {
-//  case bottom
-//  case left
-//  case right
-//}
-
 class EventMonitor {
   static let shared = EventMonitor()
 
@@ -39,8 +33,6 @@ class EventMonitor {
   private var runLoopSource: CFRunLoopSource?
   private var watchdogTimer: Timer?
   public private(set) var secureInputActive = false
-  private var isSpacePressed = false
-  private var dragCheckTimer: Timer?
   private var overlayWindow: OverlayWindow?
   private var isDragging: Bool = false
   private var isSnapping: Bool = false
@@ -49,7 +41,6 @@ class EventMonitor {
   private var mouseCoordinatesStart: CGPoint? = nil
   private var mouseCoordinatesEnd: CGPoint? = nil
   private var windowCoordinatesStart: CGPoint? = nil
-  private var windowCoordinatesEnd: CGPoint? = nil
   private var originalWindowAXFrame: AXWindowFrame? = nil
   public private(set) var activeScreen: NSScreen? = nil
   private var snapToCoordinates: CGRect? = nil
@@ -377,7 +368,6 @@ class EventMonitor {
   private func reset() {
     mouseCoordinatesEnd = nil
     mouseCoordinatesStart = nil
-    windowCoordinatesEnd = nil
     windowCoordinatesStart = nil
     frontMostWindow = nil
     originalDraggedWindow = nil
@@ -549,21 +539,7 @@ class EventMonitor {
     }
   }
 
-  // MARK: Coordinates polling
-
-  private func startPollingWindow() {
-    dragCheckTimer?.invalidate()
-    dragCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
-      self.windowCoordinatesEnd = self.getWindowCoordinates()
-    }
-    logger.debug("window coordinates polling started")
-  }
-
-  private func stopPollingWindow() {
-    dragCheckTimer?.invalidate()
-    dragCheckTimer = nil
-    logger.debug("window coordinates polling stopped")
-  }
+  // MARK: Coordinates
 
   private func getMouseCoordinates() -> CGPoint {
     return NSEvent.mouseLocation
