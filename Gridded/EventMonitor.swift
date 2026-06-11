@@ -119,6 +119,16 @@ class EventMonitor {
   private func handle(event: CGEvent, type: CGEventType) -> CGEvent? {
     let activateKey = Configuration.shared.activateKey
     switch type {
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+      // macOS disables the tap when a callback exceeds its time budget (or on
+      // certain user-input protection events). Without re-enabling here the
+      // monitor stays dead until a manual restart.
+      logger.warning(
+        "event tap disabled by \(type == .tapDisabledByTimeout ? "timeout" : "user input"), re-enabling"
+      )
+      if let eventTap {
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+      }
     case .leftMouseDown:
       logger.debug("left mouse down")
       leftMouseDown()
