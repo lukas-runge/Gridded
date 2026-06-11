@@ -76,14 +76,14 @@ class EventMonitor {
     // Slow window moves are still covered by applyWindowFrame's retry loop.
     AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
 
+    // Keep this mask minimal: this is an active (filtering) tap, so every
+    // matched event in the entire system waits on our callback.
     let eventMask =
       (1 << CGEventType.leftMouseDown.rawValue)
       | (1 << CGEventType.leftMouseDragged.rawValue)
       | (1 << CGEventType.leftMouseUp.rawValue)
       | (1 << CGEventType.rightMouseDown.rawValue)
       | (1 << CGEventType.keyDown.rawValue)
-      | (1 << CGEventType.keyUp.rawValue)
-      | (1 << CGEventType.mouseMoved.rawValue)
 
     eventTap = CGEvent.tapCreate(
       tap: .cgSessionEventTap,
@@ -183,11 +183,12 @@ class EventMonitor {
       logger.debug("left mouse up")
       leftMouseUp()
     case .leftMouseDragged:
+      // No drag-state polling here: updateDraggingState() does a synchronous
+      // AX round-trip, and drag events arrive at display refresh rate. The
+      // state is computed on demand in startSnapping() instead.
       if isSnapping {
         logger.debug("left mouse dragged")
         leftMouseDragged()
-      } else {
-        updateDraggingState()
       }
     case .rightMouseDown:
       logger.debug("right mouse down")
