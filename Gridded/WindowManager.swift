@@ -21,11 +21,6 @@ struct AXWindowFrame {
   var size: CGSize
 }
 
-private typealias CGSConnectionID = UInt32
-@_silgen_name("CGSMainConnectionID") private func CGSMainConnectionID() -> CGSConnectionID
-@_silgen_name("CGSDisableUpdate") private func CGSDisableUpdate(_ connection: CGSConnectionID)
-@_silgen_name("CGSReenableUpdate") private func CGSReenableUpdate(_ connection: CGSConnectionID)
-
 @Observable class WindowManager {
 
   static let shared = WindowManager()

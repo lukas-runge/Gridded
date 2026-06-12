@@ -6,16 +6,16 @@
 //
 
 import AppKit
+import Carbon
 import Cocoa
 import CoreGraphics
 import Foundation
 import Logging
 
-//enum DockPosition {
-//  case bottom
-//  case left
-//  case right
-//}
+extension Notification.Name {
+  static let griddedSecureInputStateDidChange = Notification.Name(
+    "GriddedSecureInputStateDidChange")
+}
 
 class EventMonitor {
   static let shared = EventMonitor()
@@ -25,11 +25,14 @@ class EventMonitor {
 
   private let logger = Logger(label: "EventMonitor")
 
-  public var isMonitoring: Bool { eventTap != nil }
+  public var isMonitoring: Bool {
+    guard let eventTap else { return false }
+    return CGEvent.tapIsEnabled(tap: eventTap)
+  }
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  private var isSpacePressed = false
-  private var dragCheckTimer: Timer?
+  private var watchdogTimer: Timer?
+  public private(set) var secureInputActive = false
   private var overlayWindow: OverlayWindow?
   private var isDragging: Bool = false
   private var isSnapping: Bool = false
@@ -38,7 +41,6 @@ class EventMonitor {
   private var mouseCoordinatesStart: CGPoint? = nil
   private var mouseCoordinatesEnd: CGPoint? = nil
   private var windowCoordinatesStart: CGPoint? = nil
-  private var windowCoordinatesEnd: CGPoint? = nil
   private var originalWindowAXFrame: AXWindowFrame? = nil
   public private(set) var activeScreen: NSScreen? = nil
   private var snapToCoordinates: CGRect? = nil
@@ -50,6 +52,10 @@ class EventMonitor {
    * Start event monitor, should run when app is started.
    */
   func start() {
+    // Watchdog runs even when start() bails (missing permission, tap creation
+    // failure) so the monitor can come up later without user interaction.
+    startWatchdog()
+
     guard eventTap == nil else { return }
 
     let options: NSDictionary = [
@@ -62,14 +68,20 @@ class EventMonitor {
       return
     }
 
+    // Cap synchronous AX round-trips process-wide (set via the system-wide
+    // element). The default of several seconds lets a single busy app stall
+    // the tap callback long enough for macOS to disable the tap by timeout.
+    // Slow window moves are still covered by applyWindowFrame's retry loop.
+    AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
+
+    // Keep this mask minimal: this is an active (filtering) tap, so every
+    // matched event in the entire system waits on our callback.
     let eventMask =
       (1 << CGEventType.leftMouseDown.rawValue)
       | (1 << CGEventType.leftMouseDragged.rawValue)
       | (1 << CGEventType.leftMouseUp.rawValue)
       | (1 << CGEventType.rightMouseDown.rawValue)
       | (1 << CGEventType.keyDown.rawValue)
-      | (1 << CGEventType.keyUp.rawValue)
-      | (1 << CGEventType.mouseMoved.rawValue)
 
     eventTap = CGEvent.tapCreate(
       tap: .cgSessionEventTap,
@@ -88,9 +100,10 @@ class EventMonitor {
       runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
       CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
       CGEvent.tapEnable(tap: eventTap, enable: true)
+      logger.info("event monitor started")
+    } else {
+      logger.error("failed to create event tap, watchdog will retry")
     }
-
-    logger.info("event monitor started")
   }
 
   /**
@@ -114,11 +127,87 @@ class EventMonitor {
     start()
   }
 
+  // MARK: Watchdog
+
+  private func startWatchdog() {
+    guard watchdogTimer == nil else { return }
+    let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+      self?.watchdogTick()
+    }
+    // .common so the watchdog also fires during menu tracking and modal panels.
+    RunLoop.main.add(timer, forMode: .common)
+    watchdogTimer = timer
+  }
+
+  private func watchdogTick() {
+    updateSecureInputState()
+
+    if let tap = eventTap, !CFMachPortIsValid(tap) {
+      logger.warning("watchdog: event tap port invalidated, tearing down")
+      stop()
+    }
+
+    if let tap = eventTap {
+      if !CGEvent.tapIsEnabled(tap: tap) {
+        logger.warning("watchdog: event tap disabled, re-enabling")
+        CGEvent.tapEnable(tap: tap, enable: true)
+      }
+    } else if AXIsProcessTrusted() {
+      // Covers: permission granted after launch, tap creation failure,
+      // teardown after trust loss. Guarded by trust check so the permission
+      // alert in start() never spams from the watchdog.
+      logger.info("watchdog: no active event tap, starting")
+      start()
+    }
+  }
+
+  /// While any app holds Secure Event Input (password fields, Terminal's
+  /// "Secure Keyboard Entry", password managers), the WindowServer withholds
+  /// keyboard events from event taps — mouse events keep flowing. That makes
+  /// keyboard activation silently dead, so we surface the state to the user.
+  private func updateSecureInputState() {
+    let active = IsSecureEventInputEnabled()
+    guard active != secureInputActive else { return }
+    secureInputActive = active
+
+    if active {
+      let holder = secureInputHolderDescription().map { " by \($0)" } ?? ""
+      logger.warning(
+        "secure event input enabled\(holder) — keyboard activation is blocked until it is released"
+      )
+    } else {
+      logger.info("secure event input released")
+    }
+    NotificationCenter.default.post(
+      name: .griddedSecureInputStateDidChange,
+      object: nil,
+      userInfo: ["active": active]
+    )
+  }
+
+  private func secureInputHolderDescription() -> String? {
+    guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+      let pid = session["kCGSSessionSecureInputPID"] as? pid_t,
+      let app = NSRunningApplication(processIdentifier: pid)
+    else { return nil }
+    return "\(app.localizedName ?? "unknown app") (pid \(pid))"
+  }
+
   // MARK: Event handlers
 
   private func handle(event: CGEvent, type: CGEventType) -> CGEvent? {
     let activateKey = Configuration.shared.activateKey
     switch type {
+    case .tapDisabledByTimeout, .tapDisabledByUserInput:
+      // macOS disables the tap when a callback exceeds its time budget (or on
+      // certain user-input protection events). Without re-enabling here the
+      // monitor stays dead until a manual restart.
+      logger.warning(
+        "event tap disabled by \(type == .tapDisabledByTimeout ? "timeout" : "user input"), re-enabling"
+      )
+      if let eventTap {
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+      }
     case .leftMouseDown:
       logger.debug("left mouse down")
       leftMouseDown()
@@ -126,11 +215,12 @@ class EventMonitor {
       logger.debug("left mouse up")
       leftMouseUp()
     case .leftMouseDragged:
+      // No drag-state polling here: updateDraggingState() does a synchronous
+      // AX round-trip, and drag events arrive at display refresh rate. The
+      // state is computed on demand in startSnapping() instead.
       if isSnapping {
         logger.debug("left mouse dragged")
         leftMouseDragged()
-      } else {
-        updateDraggingState()
       }
     case .rightMouseDown:
       logger.debug("right mouse down")
@@ -216,9 +306,10 @@ class EventMonitor {
       // event-tap callback returns so the mouseUp propagates to the app first.
       // The target app's drag handler needs time to process the mouseUp and
       // exit its drag state; applyWindowFrame retries if the app reverts changes.
-      let window = self.frontMostWindow!
-      let screen = activeScreen!
-      let frame = snapToCoordinates!
+      guard let window = frontMostWindow,
+        let screen = activeScreen,
+        let frame = snapToCoordinates
+      else { return reset() }
       reset()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
         WindowManager.shared.setWindow(window: window, screen: screen, frame: frame)
@@ -258,16 +349,18 @@ class EventMonitor {
 
     mouseCoordinatesEnd = currentMouse
 
-    snapToCoordinates = ScreenManager.shared.convertCoordinates(
-      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesEnd!),
+    guard let mouseStart = mouseCoordinatesStart else { return }
+    let snapTo = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseStart, end: currentMouse),
       screen: activeScreen
     )
-    updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
-    if Configuration.shared.moveOnActivate {
+    snapToCoordinates = snapTo
+    updateOverlayPreview(snapToCoordinates: snapTo)
+    if Configuration.shared.moveOnActivate, let frontMostWindow {
       WindowManager.shared.setWindow(
-        window: self.frontMostWindow!,
+        window: frontMostWindow,
         screen: activeScreen,
-        frame: snapToCoordinates!
+        frame: snapTo
       )
     }
   }
@@ -275,7 +368,6 @@ class EventMonitor {
   private func reset() {
     mouseCoordinatesEnd = nil
     mouseCoordinatesStart = nil
-    windowCoordinatesEnd = nil
     windowCoordinatesStart = nil
     frontMostWindow = nil
     originalDraggedWindow = nil
@@ -313,24 +405,33 @@ class EventMonitor {
       }
       frontMostWindow = snapWindow
     }
-    windowCoordinatesStart = getWindowCoordinates()
-    mouseCoordinatesStart = getMouseCoordinates()
-    mouseCoordinatesEnd = mouseCoordinatesStart
 
-    snapToCoordinates = ScreenManager.shared.convertCoordinates(
-      coords: (start: mouseCoordinatesStart!, end: mouseCoordinatesStart!),
-      screen: activeScreen!
+    guard let window = frontMostWindow, let screen = activeScreen else {
+      logger.warning("startSnapping: no window resolved, aborting snap")
+      isSnapping = false
+      return
+    }
+
+    windowCoordinatesStart = getWindowCoordinates()
+    let mouseStart = getMouseCoordinates()
+    mouseCoordinatesStart = mouseStart
+    mouseCoordinatesEnd = mouseStart
+
+    let snapTo = ScreenManager.shared.convertCoordinates(
+      coords: (start: mouseStart, end: mouseStart),
+      screen: screen
     )
+    snapToCoordinates = snapTo
 
     // Show initial overlay preview
     if Configuration.shared.moveOnActivate {
       WindowManager.shared.setWindow(
-        window: self.frontMostWindow!,
-        screen: activeScreen!,
-        frame: snapToCoordinates!
+        window: window,
+        screen: screen,
+        frame: snapTo
       )
     }
-    updateOverlayPreview(snapToCoordinates: snapToCoordinates!)
+    updateOverlayPreview(snapToCoordinates: snapTo)
   }
 
   private func captureWindowForCurrentDrag() {
@@ -438,21 +539,7 @@ class EventMonitor {
     }
   }
 
-  // MARK: Coordinates polling
-
-  private func startPollingWindow() {
-    dragCheckTimer?.invalidate()
-    dragCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
-      self.windowCoordinatesEnd = self.getWindowCoordinates()
-    }
-    logger.debug("window coordinates polling started")
-  }
-
-  private func stopPollingWindow() {
-    dragCheckTimer?.invalidate()
-    dragCheckTimer = nil
-    logger.debug("window coordinates polling stopped")
-  }
+  // MARK: Coordinates
 
   private func getMouseCoordinates() -> CGPoint {
     return NSEvent.mouseLocation
@@ -468,7 +555,13 @@ class EventMonitor {
 
     var value: AnyObject?
     guard AXIsProcessTrusted() else {
-      restart()
+      // Never restart synchronously from here: this runs inside the tap
+      // callback, and stop() would invalidate the mach port whose callback
+      // is currently executing.
+      logger.warning("accessibility trust lost, scheduling monitor restart")
+      DispatchQueue.main.async { [weak self] in
+        self?.restart()
+      }
       return nil
     }
 
