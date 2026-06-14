@@ -12,10 +12,24 @@ VERSION="$1"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${ROOT_DIR}/builds/${VERSION}"
 APP_DIR="${BUILD_DIR}/Gridded"
-OUTPUT_DMG="${BUILD_DIR}/Gridded.dmg"
 BACKGROUND_IMAGE="${ROOT_DIR}/background.jpg"
 BACKGROUND_IMAGE_PNG="${BUILD_DIR}/.dmg-background.png"
 APP_BUNDLE_NAME="Gridded.app"
+EXECUTABLE="${APP_DIR}/${APP_BUNDLE_NAME}/Contents/MacOS/Gridded"
+
+ARCHITECTURE="universal"
+if [[ -f "${EXECUTABLE}" ]]; then
+  LIPO_INFO="$(lipo -info "${EXECUTABLE}" 2>/dev/null || true)"
+  if [[ "${LIPO_INFO}" == *"Non-fat file:"* ]]; then
+    if [[ "${LIPO_INFO}" == *"arm64"* ]]; then
+      ARCHITECTURE="arm64"
+    elif [[ "${LIPO_INFO}" == *"x86_64"* ]]; then
+      ARCHITECTURE="x86_64"
+    fi
+  fi
+fi
+
+OUTPUT_DMG="${BUILD_DIR}/Gridded-${VERSION}-${ARCHITECTURE}.dmg"
 
 if ! command -v create-dmg >/dev/null 2>&1; then
   echo "Error: create-dmg is not installed."
